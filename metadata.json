@@ -1,0 +1,6 @@
+{
+  "name": "Secretify",
+  "description": "Bilingual high-fidelity neubrutalist party game simulator with dynamic multiplayer and shop integrations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

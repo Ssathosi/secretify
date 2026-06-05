@@ -1,0 +1,2 @@
+- [Secretify project setup](secretify-setup.md) — Vite on port 5000, monorepo-style with app in secretify-app/, packages at workspace root
+- [Tier 2 roles implementation](tier2-roles.md) — 8 new roles added across types+constants+store+screens; all interactive ability UIs
