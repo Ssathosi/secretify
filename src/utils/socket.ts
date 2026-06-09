@@ -98,7 +98,7 @@ class SocketManager {
   /**
    * Create room as host
    */
-  createRoom(hostData: { name: string; avatar: string }): Promise<ServerRoom> {
+  createRoom(hostData: { name: string; avatar: string; dbUserId?: string }): Promise<ServerRoom> {
     return new Promise((resolve, reject) => {
       if (!this.socket) {
         reject(new Error('Socket not connected'));
@@ -110,7 +110,6 @@ class SocketManager {
         resolve(room);
       });
 
-      // Timeout after 10 seconds
       setTimeout(() => reject(new Error('Create room timeout')), 10000);
     });
   }
@@ -122,6 +121,7 @@ class SocketManager {
     roomCode: string;
     name: string;
     avatar: string;
+    dbUserId?: string;
   }): Promise<ServerRoom> {
     return new Promise((resolve, reject) => {
       if (!this.socket) {

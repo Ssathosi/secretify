@@ -4,29 +4,60 @@
  */
 
 import express from 'express';
+import cors from 'cors';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { supabase, calculateLevel, calcPointsGained } from './db.js';
 
 dotenv.config();
 
+const JWT_SECRET = process.env.JWT_SECRET || 'secretify_jwt_secret_key_2026';
+
 const app = express();
+
+// Allow requests from the Vite dev server and production origins
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  process.env.APP_URL || ''
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. curl, mobile apps) and whitelisted origins
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS: Origin ${origin} not allowed`));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+app.use(express.json());
 const httpServer = createServer(app);
 
 // Configure Socket.io with CORS to allow connections from Vite dev server
 const io = new Server(httpServer, {
   cors: {
-    origin: '*', // Allows easy testing across localhost and local networks
+    origin: '*',
     methods: ['GET', 'POST']
   }
 });
 
-// Basic HTTP Check
+// ── REST Endpoints ──────────────────────────────────────────────────────────
+
+// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// API: Get active rooms count
+// Active rooms
 app.get('/api/rooms', (req, res) => {
   res.json({ 
     activeRooms: Object.keys(activeRooms).length,
@@ -34,10 +65,454 @@ app.get('/api/rooms', (req, res) => {
   });
 });
 
+// Register
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password, avatar } = req.body as { username: string; password: string; avatar?: string };
+    if (!username?.trim() || !password?.trim()) {
+      return res.status(400).json({ error: 'Username dan password wajib diisi.' });
+    }
+    if (username.trim().length < 3) {
+      return res.status(400).json({ error: 'Username minimal 3 karakter.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password minimal 6 karakter.' });
+    }
+    const { data: existing, error: findError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('username', username.trim())
+      .maybeSingle();
+    if (findError) throw findError;
+    if (existing) {
+      return res.status(409).json({ error: 'Username sudah dipakai.' });
+    }
+    const hash = await bcrypt.hash(password, 10);
+    const { data: newUser, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        username: username.trim(),
+        password_hash: hash,
+        avatar: avatar || 'detective',
+        points: 0,
+        level: 1
+      })
+      .select('id')
+      .single();
+    if (insertError) throw insertError;
+    const token = jwt.sign({ id: newUser.id, username: username.trim() }, JWT_SECRET, { expiresIn: '30d' });
+    return res.json({
+      token,
+      user: { id: newUser.id, username: username.trim(), avatar: avatar || 'detective', points: 0, level: 1 }
+    });
+  } catch (err) {
+    console.error('[Register Error]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body as { username: string; password: string };
+    if (!username?.trim() || !password) {
+      return res.status(400).json({ error: 'Username dan password diperlukan.' });
+    }
+    const { data: user, error: findError } = await supabase
+      .from('users')
+      .select('id, username, password_hash, avatar, points, level')
+      .eq('username', username.trim())
+      .maybeSingle();
+    if (findError) throw findError;
+    if (!user) return res.status(401).json({ error: 'Username tidak ditemukan.' });
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Password salah.' });
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '30d' });
+    return res.json({
+      token,
+      user: { id: user.id, username: user.username, avatar: user.avatar, points: user.points, level: user.level }
+    });
+  } catch (err) {
+    console.error('[Login Error]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// Global Leaderboard — top 20 by points
+app.get('/api/leaderboard', async (_req, res) => {
+  try {
+    const { data: rows, error } = await supabase
+      .from('users')
+      .select('id, username, avatar, points, level')
+      .order('points', { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    return res.json({ leaderboard: rows || [] });
+  } catch (err) {
+    console.error('[Leaderboard Error]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// Match history for a user
+app.get('/api/users/:id/history', async (req, res) => {
+  try {
+    const { data: rows, error } = await supabase
+      .from('match_participants')
+      .select(`
+        role,
+        special_role,
+        points_gained,
+        won,
+        matches (
+          room_code,
+          winner_group,
+          played_at
+        )
+      `)
+      .eq('user_id', req.params.id)
+      .order('id', { ascending: false })
+      .limit(30);
+
+    if (error) throw error;
+
+    const history = (rows || []).map((row: any) => {
+      const match = row.matches;
+      return {
+        room_code: match?.room_code || '',
+        winner_group: match?.winner_group || '',
+        played_at: match?.played_at || '',
+        role: row.role,
+        special_role: row.special_role,
+        points_gained: row.points_gained,
+        won: row.won ? 1 : 0
+      };
+    });
+
+    return res.json({ history });
+  } catch (err) {
+    console.error('[History Error]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// Sync Clerk Authenticated User to Supabase
+app.post('/api/auth/sync', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[Sync] Missing or malformed Authorization header');
+      return res.status(401).json({ error: 'Unauthorized. Missing token.' });
+    }
+    const token = authHeader.split(' ')[1];
+
+    // Verify Clerk token
+    let clerkUserId: string;
+    try {
+      const { createClerkClient, verifyToken } = await import('@clerk/backend');
+      const clerkSecret = process.env.CLERK_SECRET_KEY || '';
+      const publishableKey = process.env.VITE_CLERK_PUBLISHABLE_KEY || '';
+
+      const decoded = await verifyToken(token, {
+        secretKey: clerkSecret,
+        ...(publishableKey ? { publishableKey } : {})
+      });
+      clerkUserId = decoded.sub;
+      console.log('[Sync] Token verified, user:', clerkUserId);
+
+      const { username, avatar } = req.body as { username?: string; avatar?: string };
+
+      // Check if user already exists
+      const { data: existingUser, error: selectError } = await supabase
+        .from('users')
+        .select('id, username, avatar, points, level')
+        .eq('id', clerkUserId)
+        .maybeSingle();
+
+      if (selectError) {
+        console.error('[Sync] Supabase SELECT error:', selectError);
+        throw selectError;
+      }
+
+      if (existingUser) {
+        console.log('[Sync] Existing user found, returning:', existingUser.username);
+        return res.json({ user: existingUser, isNew: false });
+      }
+
+      // User does NOT exist in database yet
+      // 1. If avatar is not provided, they are in the initial check from the frontend.
+      // Do not write to the database yet; just return a profile template.
+      if (!avatar) {
+        let defaultUsername = username?.trim() || '';
+        if (!defaultUsername) {
+          try {
+            const clerk = createClerkClient({ secretKey: clerkSecret });
+            const clerkUser = await clerk.users.getUser(clerkUserId);
+            defaultUsername =
+              clerkUser.username ||
+              clerkUser.firstName ||
+              `agent_${clerkUserId.substring(5, 10)}`;
+          } catch (clerkErr) {
+            console.warn('[Sync] Could not fetch Clerk user details:', clerkErr);
+            defaultUsername = `agent_${clerkUserId.substring(5, 10)}`;
+          }
+        }
+
+        // Ensure unique username template
+        const { data: duplicateUser } = await supabase
+          .from('users')
+          .select('id')
+          .eq('username', defaultUsername)
+          .maybeSingle();
+
+        if (duplicateUser) {
+          defaultUsername = `${defaultUsername}_${Math.floor(1000 + Math.random() * 9000)}`;
+        }
+
+        console.log('[Sync] New user detected, returning profile setup template:', defaultUsername);
+        return res.json({
+          user: {
+            id: clerkUserId,
+            username: defaultUsername,
+            avatar: 'detective',
+            points: 0,
+            level: 1
+          },
+          isNew: true
+        });
+      }
+
+      // 2. If avatar is provided, they submitted the profile setup form.
+      // Insert them into the database with their chosen username and avatar.
+      let finalUsername = username?.trim() || '';
+      if (!finalUsername) {
+        finalUsername = `agent_${clerkUserId.substring(5, 10)}`;
+      }
+
+      // Ensure unique username
+      const { data: duplicateUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', finalUsername)
+        .maybeSingle();
+
+      if (duplicateUser) {
+        finalUsername = `${finalUsername}_${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+
+      console.log('[Sync] Creating new user in database:', finalUsername);
+      const { data: newUser, error: insertError } = await supabase
+        .from('users')
+        .insert({
+          id: clerkUserId,
+          username: finalUsername,
+          avatar: avatar,
+          points: 0,
+          level: 1
+        })
+        .select('id, username, avatar, points, level')
+        .single();
+
+      if (insertError) {
+        console.error('[Sync] Supabase INSERT error:', JSON.stringify(insertError));
+        throw insertError;
+      }
+
+      console.log('[Sync] New user created successfully:', newUser.username);
+      return res.json({ user: newUser, isNew: true });
+
+    } catch (tokenErr: any) {
+      // If it's a Supabase error re-throw it, otherwise it's a token error
+      if (tokenErr?.code || tokenErr?.message?.includes('supabase') || tokenErr?.details) {
+        throw tokenErr;
+      }
+      console.error('[Sync] Token verification failed:', tokenErr?.message || tokenErr);
+      return res.status(401).json({ error: 'Token verification failed. Check CLERK_SECRET_KEY.' });
+    }
+
+  } catch (err: any) {
+    console.error('[Sync Error]', err?.message || err);
+    const isRlsError = err?.message?.includes('row-level security') || err?.code === '42501';
+    if (isRlsError) {
+      return res.status(500).json({
+        error: 'Supabase RLS is blocking the insert. Use the Service Role key in SUPABASE_KEY, or disable RLS on the users table.'
+      });
+    }
+    return res.status(500).json({ error: err?.message || 'Auth sync failed.' });
+  }
+});
+
+
+// Update user profile (username and/or avatar)
+app.post('/api/user/update', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized. Missing token.' });
+    }
+    const token = authHeader.split(' ')[1];
+    const { username, avatar } = req.body as { username?: string; avatar?: string };
+
+    let userId: string | number | null = null;
+    let isClerk = false;
+
+    // 1. Try Clerk verification first if configured
+    const publishableKey = process.env.VITE_CLERK_PUBLISHABLE_KEY || '';
+    const isValidClerkKey = publishableKey.startsWith('pk_test_') || publishableKey.startsWith('pk_live_');
+
+    if (isValidClerkKey) {
+      try {
+        const { verifyToken } = await import('@clerk/backend');
+        const clerkSecret = process.env.CLERK_SECRET_KEY || '';
+        const decoded = await verifyToken(token, {
+          secretKey: clerkSecret,
+        });
+        userId = decoded.sub;
+        isClerk = true;
+        console.log('[Profile Update] Clerk token verified for user:', userId);
+      } catch (clerkErr) {
+        // Fall back to local JWT
+      }
+    }
+
+    // 2. Try local JWT verification if not Clerk
+    if (!isClerk) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as { id: string | number; username: string };
+        userId = decoded.id;
+        console.log('[Profile Update] JWT verified for user:', userId);
+      } catch (jwtErr) {
+        return res.status(401).json({ error: 'Invalid or expired token.' });
+      }
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized.' });
+    }
+
+    const updates: any = {};
+    if (username?.trim()) {
+      const trimmed = username.trim();
+      if (trimmed.length < 3) {
+        return res.status(400).json({ error: 'Username minimal 3 karakter.' });
+      }
+
+      // Check if username is taken by another user
+      const { data: duplicate } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', trimmed)
+        .neq('id', userId)
+        .maybeSingle();
+
+      if (duplicate) {
+        return res.status(409).json({ error: 'Username sudah digunakan oleh pemain lain.' });
+      }
+      updates.username = trimmed;
+    }
+
+    if (avatar) {
+      updates.avatar = avatar;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Tidak ada data yang dirubah.' });
+    }
+
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+      .select('id, username, avatar, points, level')
+      .single();
+
+    if (updateError) {
+      console.error('[Profile Update] Supabase UPDATE error:', updateError);
+      return res.status(500).json({ error: 'Gagal memperbarui database.' });
+    }
+
+    console.log('[Profile Update] Successfully updated user:', updatedUser.username);
+    return res.json({ user: updatedUser });
+
+  } catch (err: any) {
+    console.error('[Profile Update Route Error]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+
+// Delete user profile and data from database
+app.post('/api/user/delete', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized. Missing token.' });
+    }
+    const token = authHeader.split(' ')[1];
+
+    let userId: string | number | null = null;
+    let isClerk = false;
+
+    // 1. Try Clerk verification first if configured
+    const publishableKey = process.env.VITE_CLERK_PUBLISHABLE_KEY || '';
+    const isValidClerkKey = publishableKey.startsWith('pk_test_') || publishableKey.startsWith('pk_live_');
+
+    if (isValidClerkKey) {
+      try {
+        const { verifyToken } = await import('@clerk/backend');
+        const clerkSecret = process.env.CLERK_SECRET_KEY || '';
+        const decoded = await verifyToken(token, {
+          secretKey: clerkSecret,
+        });
+        userId = decoded.sub;
+        isClerk = true;
+      } catch (clerkErr) {
+        // Fall back to local JWT
+      }
+    }
+
+    // 2. Try local JWT verification if not Clerk
+    if (!isClerk) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as { id: string | number; username: string };
+        userId = decoded.id;
+      } catch (jwtErr) {
+        return res.status(401).json({ error: 'Invalid or expired token.' });
+      }
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized.' });
+    }
+
+    console.log(`[Profile Delete] Deleting user ${userId} from database...`);
+
+    // Delete user from Supabase
+    const { error: deleteError } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId);
+
+    if (deleteError) {
+      console.error('[Profile Delete] Supabase DELETE error:', deleteError);
+      return res.status(500).json({ error: 'Gagal menghapus user dari database.' });
+    }
+
+    console.log(`[Profile Delete] Successfully deleted user ${userId}`);
+    return res.json({ success: true });
+
+  } catch (err: any) {
+    console.error('[Profile Delete Route Error]', err);
+    return res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+
 // In-Memory Database for Active Lobbies
 interface ServerPlayer {
   id: string;
   socketId: string;
+  dbUserId?: string;   // Linked DB user ID (undefined = guest)
   name: string;
   avatar: string;
   isReady: boolean;
@@ -99,7 +574,7 @@ interface Room {
   debateDurationSec: number;
   discussionEndsAt: number | null;
   clueCompleteEndsAt: number | null;
-  winnerRoleGroup?: 'CIVILIANS' | 'UNDERCOVERS' | 'MR_WHITE';
+  winnerRoleGroup?: 'CIVILIANS' | 'UNDERCOVERS' | 'MR_WHITE' | 'CLOWN';
 }
 
 const activeRooms: Record<string, Room> = {};
@@ -249,14 +724,15 @@ io.on('connection', (socket: Socket) => {
   console.log(`[Socket Connected] ID: ${socket.id}`);
 
   // Event: Host Creates a Room
-  socket.on('create-room', (hostData: { name: string; avatar: string }) => {
+  socket.on('create-room', (hostData: { name: string; avatar: string; dbUserId?: string }) => {
     const code = generateRoomCode();
     const newRoom: Room = {
       code,
       players: [
         {
-          id: '1', // Host is player 1
+          id: '1',
           socketId: socket.id,
+          dbUserId: hostData.dbUserId,
           name: hostData.name,
           avatar: hostData.avatar,
           isReady: true,
@@ -294,7 +770,7 @@ io.on('connection', (socket: Socket) => {
   });
 
   // Event: Player Joins a Room
-  socket.on('join-room', (data: { roomCode: string; name: string; avatar: string }) => {
+  socket.on('join-room', (data: { roomCode: string; name: string; avatar: string; dbUserId?: string }) => {
     const code = data.roomCode.toUpperCase();
     const room = activeRooms[code];
 
@@ -311,6 +787,7 @@ io.on('connection', (socket: Socket) => {
     const newPlayer: ServerPlayer = {
       id: (room.players.length + 1).toString(),
       socketId: socket.id,
+      dbUserId: data.dbUserId,
       name: data.name,
       avatar: data.avatar,
       isReady: false,
@@ -760,15 +1237,12 @@ io.on('connection', (socket: Socket) => {
     const whites = active.filter((p) => p.role === 'MR_WHITE');
 
     if (ucs.length === 0 && whites.length === 0) {
-      // Civilians win — all enemy roles eliminated
       room.gameState = 'winner';
       room.winnerRoleGroup = 'CIVILIANS';
     } else if (ucs.length >= civs.length) {
-      // Undercovers win — they outnumber or match civilians
       room.gameState = 'winner';
       room.winnerRoleGroup = 'UNDERCOVERS';
     } else if (whites.length >= civs.length && ucs.length === 0) {
-      // Mr. White wins — all undercovers gone and whites >= civs
       room.gameState = 'winner';
       room.winnerRoleGroup = 'MR_WHITE';
     } else {
@@ -786,6 +1260,13 @@ io.on('connection', (socket: Socket) => {
         votesReceived: 0
       }));
       room.gameState = 'clue_round';
+    }
+
+    // ── Persist match result if game ended ────────────────────────────────
+    if (room.gameState === 'winner' && room.winnerRoleGroup) {
+      persistMatchResult(data.roomCode, room).catch((e) =>
+        console.error('[DB] Failed to persist match:', e)
+      );
     }
 
     broadcastRoom(data.roomCode, room);
@@ -893,6 +1374,77 @@ io.on('connection', (socket: Socket) => {
   });
 });
 
+// ── Persist Match to Supabase ────────────────────────────────────────────────
+async function persistMatchResult(roomCode: string, room: Room) {
+  try {
+    const winnerGroup = room.winnerRoleGroup!;
+
+    const { data: match, error: matchError } = await supabase
+      .from('matches')
+      .insert({ room_code: roomCode, winner_group: winnerGroup })
+      .select('id')
+      .single();
+    if (matchError) throw matchError;
+    const matchId = match.id;
+
+    for (const player of room.players) {
+      const role = player.role || 'SIVIL';
+      const isWinner =
+        (winnerGroup === 'CIVILIANS' && role === 'SIVIL') ||
+        (winnerGroup === 'UNDERCOVERS' && role === 'UNDERCOVER') ||
+        (winnerGroup === 'MR_WHITE' && role === 'MR_WHITE') ||
+        (winnerGroup === 'CLOWN' && player.specialRole === 'clown');
+
+      const pts = calcPointsGained(role, winnerGroup, isWinner);
+
+      const { error: participantError } = await supabase
+        .from('match_participants')
+        .insert({
+          match_id: matchId,
+          user_id: player.dbUserId || null,
+          guest_name: player.dbUserId ? null : player.name,
+          role,
+          special_role: player.specialRole || null,
+          points_gained: pts,
+          won: isWinner
+        });
+      if (participantError) throw participantError;
+
+      // Update user points and level if they have a DB account
+      if (player.dbUserId) {
+        const { data: userRecord, error: userError } = await supabase
+          .from('users')
+          .select('points')
+          .eq('id', player.dbUserId)
+          .single();
+        
+        if (userError) {
+          console.error(`[DB] Error fetching user points for ID ${player.dbUserId}:`, userError);
+          continue;
+        }
+
+        const currentPoints = userRecord.points || 0;
+        const newPoints = currentPoints + pts;
+        const newLevel = calculateLevel(newPoints);
+
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({ points: newPoints, level: newLevel })
+          .eq('id', player.dbUserId);
+
+        if (updateError) {
+          console.error(`[DB] Error updating user ${player.dbUserId} stats:`, updateError);
+        }
+      }
+    }
+
+    console.log(`[DB] Match ${matchId} saved for room ${roomCode} — Winner: ${winnerGroup}`);
+  } catch (err) {
+    console.error('[DB] persistMatchResult error:', err);
+  }
+}
+
+// ── Start server ───────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => {
   console.log(`\n==========================================`);

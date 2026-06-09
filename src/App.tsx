@@ -17,6 +17,8 @@ import {
   RealityEliminationView, 
   RealityWinnerView 
 } from './components/RealityModeScreens';
+import { AuthView, loadSavedAuth, clearAuth, type AuthUser, isValidClerkKey } from './components/AuthView';
+import { LiveLeaderboardView } from './components/LiveLeaderboardView';
 import { getRandomWordPair } from './utils/wordPacks';
 import { BilingualText, ScallopLine } from './components/BrutalComponents';
 import { sfx } from './utils/audio';
@@ -53,6 +55,19 @@ export default function App() {
   // User identity
   const [playerName, setPlayerName] = useState('Detektif Budi');
   const [playerAvatar, setPlayerAvatar] = useState('detective');
+
+  // Authenticated user (null = guest)
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  // Load saved session on first mount
+  useEffect(() => {
+    const saved = loadSavedAuth();
+    if (saved) {
+      setCurrentUser(saved.user);
+      setPlayerName(saved.user.username);
+      setPlayerAvatar(saved.user.avatar);
+    }
+  }, []);
 
   // Interactive Match state managers
   const [playersList, setPlayersList] = useState<Player[]>(MOCK_PLAYERS);
@@ -101,6 +116,33 @@ export default function App() {
     setActiveScreen('home');
   };
 
+  // Handle DB auth success (register/login)
+  const handleAuthSuccess = (user: AuthUser, _token: string) => {
+    setCurrentUser(user);
+    setPlayerName(user.username);
+    setPlayerAvatar(user.avatar);
+    setPlayersList((prev) =>
+      prev.map((p) => (p.id === '1' ? { ...p, name: user.username, avatar: user.avatar } : p))
+    );
+    setActiveScreen('home');
+  };
+
+  const handleLogout = async () => {
+    clearAuth();
+    setCurrentUser(null);
+    setActiveScreen('login');
+    if (isValidClerkKey) {
+      try {
+        const clerk = (window as any).Clerk;
+        if (clerk) {
+          await clerk.signOut();
+        }
+      } catch (e) {
+        console.error('Clerk signout error:', e);
+      }
+    }
+  };
+
   const enterOnlineLobby = async (
     action: 'create' | 'join',
     joinCode?: string
@@ -109,9 +151,9 @@ export default function App() {
     multiplayer.clearError();
     try {
       if (action === 'create') {
-        await multiplayer.createRoom(playerName, playerAvatar);
+        await multiplayer.createRoom(playerName, playerAvatar, currentUser?.id);
       } else if (joinCode) {
-        await multiplayer.joinRoom(joinCode, playerName, playerAvatar);
+        await multiplayer.joinRoom(joinCode, playerName, playerAvatar, currentUser?.id);
       }
       setActiveScreen('lobby');
     } catch {
@@ -1084,13 +1126,18 @@ export default function App() {
             )}
 
             {activeScreen === 'login' && (
-              <LoginView onLogin={handleUserLogin} />
+              <AuthView
+                onAuthSuccess={handleAuthSuccess}
+                onContinueAsGuest={() => setActiveScreen('home')}
+                language={language}
+              />
             )}
 
             {activeScreen === 'home' && (
               <HomeView
                 playerName={playerName}
                 avatar={playerAvatar}
+                currentUser={currentUser}
                 onQuickPlay={handleQuickPlay}
                 onCreateRoom={handleCreateRoom}
                 onJoinRoom={handleJoinPrivateRoom}
@@ -1101,6 +1148,7 @@ export default function App() {
                 onOpenProfile={() => setActiveScreen('profile')}
                 onOpenSettings={() => setActiveScreen('settings')}
                 onOpenRoleGuide={() => setActiveScreen('role_guide')}
+                onGoToLogin={() => setActiveScreen('login')}
                 language={language}
               />
             )}
@@ -1276,11 +1324,61 @@ export default function App() {
               <ProfileView
                 playerName={playerName}
                 avatar={playerAvatar}
-                onUpdateNameAndAvatar={(n, a) => {
+                currentUser={currentUser}
+                onUpdateNameAndAvatar={async (n, a) => {
                   setPlayerName(n);
                   setPlayerAvatar(a);
+                  
+                  if (currentUser) {
+                    try {
+                      const token = localStorage.getItem('secretify_token');
+                      const SERVER_URL = (import.meta as any).env?.VITE_SERVER_URL || 'http://localhost:5000';
+                      const res = await fetch(`${SERVER_URL}/api/user/update`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ username: n, avatar: a })
+                      });
+                      const data = await res.json();
+                      if (res.ok && data.user) {
+                        setCurrentUser(data.user);
+                        localStorage.setItem('secretify_user', JSON.stringify(data.user));
+                      } else {
+                        console.error('Failed to update database profile:', data.error);
+                      }
+                    } catch (e) {
+                      console.error('Failed to connect to profile update endpoint:', e);
+                    }
+                  }
+                  
                   setActiveScreen('home');
                 }}
+                onDeleteAccount={async () => {
+                  if (currentUser) {
+                    try {
+                      const token = localStorage.getItem('secretify_token');
+                      const SERVER_URL = (import.meta as any).env?.VITE_SERVER_URL || 'http://localhost:5000';
+                      const res = await fetch(`${SERVER_URL}/api/user/delete`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        }
+                      });
+                      if (res.ok) {
+                        console.log('Successfully deleted user from database.');
+                      } else {
+                        const data = await res.json();
+                        console.error('Failed to delete user from database:', data.error);
+                      }
+                    } catch (e) {
+                      console.error('Failed to connect to delete profile endpoint:', e);
+                    }
+                  }
+                }}
+                onLogout={handleLogout}
                 onClose={() => setActiveScreen('home')}
                 language={language}
               />
@@ -1302,16 +1400,18 @@ export default function App() {
             )}
 
             {activeScreen === 'leaders' && (
-              <LeaderboardsView
-                leaderboardUsers={MOCK_LEADER_USERS}
+              <LiveLeaderboardView
+                onBack={() => setActiveScreen('home')}
                 language={language}
-                onClose={() => setActiveScreen('home')}
+                currentUserId={currentUser?.id}
               />
             )}
 
             {activeScreen === 'history' && (
               <MatchHistoryView
                 historyData={MOCK_MATCH_HISTORY}
+                currentUser={currentUser}
+                language={language}
                 onClose={() => setActiveScreen('home')}
               />
             )}

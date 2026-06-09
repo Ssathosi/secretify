@@ -20,8 +20,8 @@ export interface UseMultiplayerReturn {
 
   connect: () => void;
   disconnect: () => void;
-  createRoom: (name: string, avatar: string) => Promise<void>;
-  joinRoom: (roomCode: string, name: string, avatar: string) => Promise<void>;
+  createRoom: (name: string, avatar: string, dbUserId?: string) => Promise<void>;
+  joinRoom: (roomCode: string, name: string, avatar: string, dbUserId?: string) => Promise<void>;
   toggleReady: (playerId: string) => void;
   updateSettings: (settings: {
     maxPlayers: number;
@@ -185,11 +185,11 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
   }, [connect]);
 
   const handleCreateRoom = useCallback(
-    async (name: string, avatar: string) => {
+    async (name: string, avatar: string, dbUserId?: string) => {
       try {
         setConnectionError(null);
         await ensureConnected();
-        const newRoom = await socketManager.createRoom({ name, avatar });
+        const newRoom = await socketManager.createRoom({ name, avatar, dbUserId });
         setLocalPlayer(newRoom.players[0]?.id ?? null);
         setRoomCode(newRoom.code);
         setRoom(newRoom);
@@ -206,14 +206,15 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
   );
 
   const handleJoinRoom = useCallback(
-    async (code: string, name: string, avatar: string) => {
+    async (code: string, name: string, avatar: string, dbUserId?: string) => {
       try {
         setConnectionError(null);
         await ensureConnected();
         const joinedRoom = await socketManager.joinRoom({
           roomCode: code,
           name,
-          avatar
+          avatar,
+          dbUserId
         });
         const me = joinedRoom.players.find((p) => p.name === name);
         setLocalPlayer(me?.id ?? null);

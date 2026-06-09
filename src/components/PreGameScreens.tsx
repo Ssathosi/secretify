@@ -727,6 +727,7 @@ export const GameRulesModal: React.FC<GameRulesModalProps> = ({ isOpen, onClose,
 interface HomeViewProps {
   playerName: string;
   avatar: string;
+  currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number } | null;
   onQuickPlay: () => void;
   onCreateRoom: () => void;
   onJoinRoom: (code: string) => void;
@@ -737,12 +738,14 @@ interface HomeViewProps {
   onOpenProfile: () => void;
   onOpenSettings: () => void;
   onOpenRoleGuide: () => void;
+  onGoToLogin: () => void;
   language: 'ID' | 'EN';
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
   playerName,
   avatar,
+  currentUser,
   onQuickPlay,
   onCreateRoom,
   onJoinRoom,
@@ -753,6 +756,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenProfile,
   onOpenSettings,
   onOpenRoleGuide,
+  onGoToLogin,
   language
 }) => {
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -810,7 +814,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <div className="relative">
                 <PixelAvatar avatar={avatar} size="lg" />
                 <div className="absolute -bottom-1 -right-1 bg-amber-400 border border-black text-[9px] font-mono px-1 rounded font-bold">
-                  PRO
+                  {currentUser ? 'PRO' : 'GST'}
                 </div>
               </div>
 
@@ -821,7 +825,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </h3>
                   <button
                     onClick={onOpenProfile}
-                    className="text-xs font-mono text-slate-500 font-bold border-b border-black mb-1 hover:text-black"
+                    className="text-xs font-mono text-slate-500 font-bold border-b border-black mb-1 hover:text-black cursor-pointer"
                   >
                     DETAIL / VIEW <ArrowRight className="w-3.5 h-3.5 inline" />
                   </button>
@@ -829,14 +833,28 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
                 <div className="flex flex-wrap items-center gap-2 mt-1">
                   <div className="bg-[#DFFF00] text-black border-2 border-black px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase">
-                    Level 12
+                    Level {currentUser ? currentUser.level : 1}
                   </div>
                   <div className="bg-[#2EC4B6] text-black border-2 border-black px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase">
-                    2.450 pts
+                    {(currentUser ? currentUser.points : 0).toLocaleString()} pts
                   </div>
                 </div>
               </div>
             </div>
+
+            {!currentUser && (
+              <div className="mt-4 p-3 bg-[#e2f1ff] border-2 border-black rounded-xl flex items-center justify-between shadow-[2px_2px_0px_#000]">
+                <span className="text-xs font-mono text-blue-950 font-black uppercase tracking-tight">
+                  {language === 'ID' ? 'Simpan skor & XP kamu!' : 'Save your score & XP!'}
+                </span>
+                <button
+                  onClick={onGoToLogin}
+                  className="px-3 py-1.5 bg-[#DFFF00] text-black border-2 border-black text-xs font-mono font-black rounded-lg hover:bg-[#c4e000] brutal-shadow-sm cursor-pointer"
+                >
+                  {language === 'ID' ? 'MASUK' : 'LOGIN'}
+                </button>
+              </div>
+            )}
           </BrutalCard>
 
           {/* Event Banner */}

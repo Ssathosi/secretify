@@ -8,20 +8,108 @@ import { ShoppingBag, Trophy, Settings, History, Sparkles, User, Shield, Volume2
 import { ShopItem, LeaderboardUser, MatchHistory } from '../types';
 import { BilingualText, BrutalButton, BrutalCard, PixelAvatar, BrutalBadge, PixelStars } from './BrutalComponents';
 import { sfx } from '../utils/audio';
+import { useUser, useClerk } from '@clerk/clerk-react';
+import { isValidClerkKey } from './AuthView';
 
 // 1. PROFILE AND AVATAR STUDIO
 interface ProfileViewProps {
   playerName: string;
   avatar: string;
+  currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number } | null;
   onUpdateNameAndAvatar: (name: string, av: string) => void;
+  onLogout?: () => void;
+  onDeleteAccount?: () => Promise<void>;
   onClose: () => void;
   language: 'ID' | 'EN';
 }
 
+const ClerkAccountDetails: React.FC<{
+  language: 'ID' | 'EN';
+  onDeleteAccount: () => Promise<void>;
+  onLogout: () => void;
+}> = ({ language, onDeleteAccount, onLogout }) => {
+  const { user } = useUser();
+  const { openUserProfile } = useClerk();
+
+  const handleDelete = async () => {
+    const confirmDelete = window.confirm(
+      language === 'ID'
+        ? 'Apakah Anda yakin ingin menghapus akun secara permanen? Semua data poin dan skor akan hilang.'
+        : 'Are you sure you want to permanently delete your account? All points and scores will be lost.'
+    );
+    if (!confirmDelete) return;
+
+    try {
+      // Delete from DB FIRST while the Clerk token is still valid
+      await onDeleteAccount();
+      // Then delete the Clerk account (invalidates session)
+      if (user) {
+        try {
+          await user.delete();
+        } catch (clerkErr) {
+          console.warn('Clerk user.delete() failed (may already be removed):', clerkErr);
+        }
+      }
+      
+      // Finally, reset UI and go back to login screen
+      onLogout();
+    } catch (err) {
+      console.error('Failed to delete account:', err);
+      alert(language === 'ID' ? 'Gagal menghapus akun.' : 'Failed to delete account.');
+    }
+  };
+
+  // Find linked oauth accounts
+  const providers = user?.externalAccounts.map(acc => acc.provider) || [];
+
+  return (
+    <div className="mt-4 p-4 bg-[#F0EDE6] rounded-xl border-2 border-black space-y-3 text-left">
+      <h4 className="text-[10px] font-mono font-black text-slate-600 uppercase tracking-wider">
+        {language === 'ID' ? 'Akun Terhubung (Clerk)' : 'Linked Accounts (Clerk)'}
+      </h4>
+      
+      <div className="space-y-1.5">
+        {providers.length > 0 ? (
+          providers.map((p) => (
+            <div key={p} className="flex items-center gap-2 bg-white px-3 py-1.5 border border-black/35 rounded-lg text-xs font-mono font-bold uppercase">
+              <span className="text-emerald-600 font-black">●</span> {p} Connected
+            </div>
+          ))
+        ) : (
+          <div className="text-xs font-mono text-slate-500">
+            {language === 'ID' ? 'Masuk via Email/Password' : 'Logged in via Email/Password'}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2 pt-2">
+        <button
+          type="button"
+          onClick={() => openUserProfile()}
+          className="w-full py-2 bg-white hover:bg-slate-100 text-black border-2 border-black rounded-lg font-mono text-xs font-bold brutal-press cursor-pointer"
+        >
+          🔑 {language === 'ID' ? 'Kelola Akun & Koneksi' : 'Manage Account & Bindings'}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleDelete}
+          className="w-full py-2 bg-red-100 hover:bg-red-200 text-red-700 border-2 border-red-500 rounded-lg font-mono text-xs font-bold brutal-press cursor-pointer"
+        >
+          ⚠️ {language === 'ID' ? 'Hapus Akun Permanen' : 'Delete Account Permanently'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export const ProfileView: React.FC<ProfileViewProps> = ({
   playerName,
   avatar,
+  currentUser,
   onUpdateNameAndAvatar,
+  onLogout,
+  onDeleteAccount,
   onClose,
   language
 }) => {
@@ -33,6 +121,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const handleUpdate = () => {
     if (editingName.trim()) {
       onUpdateNameAndAvatar(editingName, activeAvatar);
+    }
+  };
+
+  const handleLocalDelete = async () => {
+    const confirmDelete = window.confirm(
+      language === 'ID'
+        ? 'Apakah Anda yakin ingin menghapus akun secara permanen? Semua data poin dan skor akan hilang.'
+        : 'Are you sure you want to permanently delete your account? All points and scores will be lost.'
+    );
+    if (confirmDelete && onDeleteAccount) {
+      await onDeleteAccount();
+      if (onLogout) {
+        onLogout();
+      }
     }
   };
 
@@ -118,33 +220,56 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <div className="relative">
                 <PixelAvatar avatar={activeAvatar} size="xl" />
                 <div className="absolute -bottom-2 -right-2 bg-[#DFFF00] text-black border-2 border-black font-mono font-black text-[10px] px-2 py-0.5 rounded-sm uppercase tracking-wide">
-                  LVL 12
+                  LVL {currentUser ? currentUser.level : 1}
                 </div>
               </div>
             </div>
 
             <h3 className="text-2xl font-black tracking-tight mb-2 uppercase">{editingName}</h3>
-            <span className="text-xs font-mono text-slate-400 font-bold block uppercase mb-6">SECRETIFY ELITE VISITOR</span>
+            <span className="text-xs font-mono text-slate-400 font-bold block uppercase mb-6">
+              {currentUser ? 'SECRETIFY REGISTERED AGENT' : 'GUEST AGENT'}
+            </span>
 
             {/* Quick Stats Grid */}
             <div className="grid grid-cols-2 gap-3 mb-6 bg-[#F0EDE6] p-4 rounded-xl border-2 border-black">
-              <div className="text-center p-2.5 bg-white border border-black/35 rounded-lg">
-                <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">WIN RATIO</span>
-                <span className="text-xl font-bold font-mono tracking-tight text-gray-900">76.4%</span>
-              </div>
-              <div className="text-center p-2.5 bg-white border border-black/35 rounded-lg">
-                <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">TOTAL ROUNDS</span>
-                <span className="text-xl font-bold font-mono tracking-tight text-gray-900">142</span>
-              </div>
-              <div className="text-center p-2.5 bg-white border border-black/35 rounded-lg">
-                <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">XP SECURED</span>
-                <span className="text-xl font-bold font-mono tracking-tight text-gray-900">2,450</span>
-              </div>
-              <div className="text-center p-2.5 bg-white border border-black/35 rounded-lg">
-                <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">AVATARS OWNED</span>
-                <span className="text-xl font-bold font-mono tracking-tight text-gray-900">10 / 10</span>
+              <div className="text-center p-2.5 bg-white border border-black/35 rounded-lg col-span-2">
+                <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">TOTAL POINTS (XP)</span>
+                <span className="text-2xl font-black font-mono tracking-tight text-gray-900">
+                  {currentUser ? currentUser.points.toLocaleString() : 0}
+                </span>
               </div>
             </div>
+
+            {currentUser && onLogout && (
+              <button
+                onClick={onLogout}
+                className="w-full mt-2 border-2 border-red-500 text-red-500 bg-white font-mono text-xs font-bold px-4 py-2 rounded-lg hover:bg-red-50 cursor-pointer"
+              >
+                {language === 'ID' ? 'Keluar Akun (Log Out)' : 'Log Out'}
+              </button>
+            )}
+            {!currentUser && onLogout && (
+              <button
+                onClick={onLogout}
+                className="w-full mt-2 border-2 border-black bg-[#DFFF00] text-black font-mono text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#c4e000] cursor-pointer shadow-[2px_2px_0px_#000] active:translate-y-0.5 active:shadow-none transition-all"
+              >
+                {language === 'ID' ? 'Masuk / Daftar Akun (Log In)' : 'Log In / Register'}
+              </button>
+            )}
+
+            {currentUser && isValidClerkKey && onDeleteAccount && onLogout && (
+              <ClerkAccountDetails language={language} onDeleteAccount={onDeleteAccount} onLogout={onLogout} />
+            )}
+
+            {currentUser && !isValidClerkKey && onDeleteAccount && (
+              <button
+                type="button"
+                onClick={handleLocalDelete}
+                className="w-full mt-2 border-2 border-red-500 text-red-500 bg-white font-mono text-xs font-bold px-4 py-2 rounded-lg hover:bg-red-50 cursor-pointer brutal-press"
+              >
+                ⚠️ {language === 'ID' ? 'Hapus Akun Permanen' : 'Delete Account Permanently'}
+              </button>
+            )}
 
             <div className="p-3.5 bg-[#FF6B35]/10 border-2 border-[#FF6B35] rounded-xl text-left flex items-start gap-3">
               <Trophy className="w-5 h-5 shrink-0 text-[#FF6B35] mt-0.5" />
@@ -439,11 +564,29 @@ export const LeaderboardsView: React.FC<LeaderboardsViewProps> = ({
 
 // 4. HISTORICAL RECAP LOGS
 interface MatchHistoryViewProps {
-  historyData: MatchHistory[];
+  historyData: MatchHistory[]; // Fallback mock
+  currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number } | null;
+  language?: 'ID' | 'EN';
   onClose: () => void;
 }
 
-export const MatchHistoryView: React.FC<MatchHistoryViewProps> = ({ historyData, onClose }) => {
+export const MatchHistoryView: React.FC<MatchHistoryViewProps> = ({ historyData, currentUser, language = 'ID', onClose }) => {
+  const [liveHistory, setLiveHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (!currentUser?.id) return;
+    setLoading(true);
+    const SERVER_URL = (import.meta as any).env?.VITE_SERVER_URL || 'http://localhost:5000';
+    fetch(`${SERVER_URL}/api/users/${currentUser.id}/history`)
+      .then((res) => res.json())
+      .then((data) => setLiveHistory(data.history || []))
+      .catch((err) => console.error(err))
+      .finally(() => setLoading(false));
+  }, [currentUser]);
+
+  // Use live history if logged in, otherwise use mock history
+  const displayHistory = currentUser ? liveHistory : historyData;
   return (
     <div className="min-h-dvh bg-[#F7F4EE] py-6 px-4 max-w-[1280px] mx-auto w-full flex flex-col justify-between">
       {/* Top row */}
@@ -459,63 +602,74 @@ export const MatchHistoryView: React.FC<MatchHistoryViewProps> = ({ historyData,
 
       {/* Match feed list boxes */}
       <div className="space-y-4 flex-1 mb-6">
-        {historyData.map((record) => (
-          <BrutalCard
-            key={record.id}
-            bg="paper"
-            className={`p-5 flex flex-col md:flex-row justify-between md:items-center border-3 border-black gap-4`}
-          >
-            <div className="flex items-start gap-4">
-              <div
-                className={`w-12 h-12 rounded-xl border-2 border-black flex items-center justify-center shrink-0 brutal-shadow-sm ${
-                  record.isWin ? 'bg-[#DFFF00]' : 'bg-[#FF6B35]'
-                }`}
-              >
-                {record.isWin
-                  ? <Check className="w-5 h-5 text-black" />
-                  : <X className="w-5 h-5 text-white" />
-                }
-              </div>
+        {loading && (
+          <div className="text-center font-mono text-slate-400 text-sm p-4">Loading history...</div>
+        )}
+        {!loading && displayHistory.length === 0 && (
+          <div className="text-center font-mono text-slate-400 text-sm p-4">
+            {language === 'ID' ? 'Belum ada riwayat permainan.' : 'No match history yet.'}
+          </div>
+        )}
+        {!loading && displayHistory.map((record, idx) => {
+          const isWin = currentUser ? record.won === 1 : record.isWin;
+          const role = currentUser ? record.role : record.role;
+          const pointsEarned = currentUser ? record.points_gained : record.pointsEarned;
+          const dateStr = currentUser ? new Date(record.played_at).toLocaleString() : record.date;
+          const roomCode = currentUser ? record.room_code : record.mode; // map mode -> room_code visually
 
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-black text-black">
-                    {record.mode.toUpperCase()} MODE
-                  </span>
-                  <span className="bg-[#F0EDE6] border border-black/35 text-[8.5px] font-mono font-bold px-1.5 rounded text-slate-600 uppercase">
-                    {record.date}
-                  </span>
+          return (
+            <BrutalCard
+              key={currentUser ? idx : record.id}
+              bg="paper"
+              className="p-5 flex flex-col md:flex-row justify-between md:items-center border-3 border-black gap-4"
+            >
+              <div className="flex items-start gap-4">
+                <div
+                  className={`w-12 h-12 rounded-xl border-2 border-black flex items-center justify-center shrink-0 brutal-shadow-sm ${
+                    isWin ? 'bg-[#DFFF00]' : 'bg-[#FF6B35]'
+                  }`}
+                >
+                  {isWin
+                    ? <Check className="w-5 h-5 text-black" />
+                    : <X className="w-5 h-5 text-white" />
+                  }
                 </div>
 
-                <h4 className="font-extrabold text-sm text-gray-900 mt-2 font-display">
-                  PERAN / ROLE: {record.role} • {record.rounds} RONDE
-                </h4>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-black text-black">
+                      ROOM: {roomCode}
+                    </span>
+                    <span className="bg-[#F0EDE6] border border-black/35 text-[8.5px] font-mono font-bold px-1.5 rounded text-slate-600 uppercase">
+                      {dateStr}
+                    </span>
+                  </div>
 
-                <div className="flex flex-wrap gap-2.5 items-center mt-3 text-[10px] font-mono text-slate-500 font-bold uppercase">
-                  <span>KATA SIPIL: <strong className="text-black">{record.secretWordCivilian}</strong></span>
-                  <span className="text-slate-400">|</span>
-                  <span>KATA PENYAMAR: <strong className="text-black">{record.secretWordUndercover}</strong></span>
+                  <h4 className="font-extrabold text-sm text-gray-900 mt-2 font-display uppercase">
+                    ROLE: {role}
+                    {record.special_role ? ` (${record.special_role})` : ''}
+                  </h4>
                 </div>
               </div>
-            </div>
 
-            {/* Accrued reward point banner */}
-            <div className="text-right flex flex-row md:flex-col justify-between items-center md:items-end border-t md:border-none border-black/10 pt-2.5 md:pt-0">
-              <span className="text-[10px] font-sans text-slate-400 font-bold block uppercase md:mb-1">
-                SKORING / REWARDS
-              </span>
-              <span
-                className={`font-mono text-sm font-extrabold border-2 border-black px-2.5 py-1 rounded-lg ${
-                  record.pointsEarned >= 0
-                    ? 'bg-[#DFFF00] text-black shadow-[1.5px_1.5px_0_#000]'
-                    : 'bg-[#FF6B35] text-white shadow-[1.5px_1.5px_0_#000]'
-                }`}
-              >
-                {record.pointsEarned >= 0 ? `+${record.pointsEarned}` : record.pointsEarned} XP
-              </span>
-            </div>
-          </BrutalCard>
-        ))}
+              {/* Accrued reward point banner */}
+              <div className="text-right flex flex-row md:flex-col justify-between items-center md:items-end border-t md:border-none border-black/10 pt-2.5 md:pt-0">
+                <span className="text-[10px] font-sans text-slate-400 font-bold block uppercase md:mb-1">
+                  SKORING / REWARDS
+                </span>
+                <span
+                  className={`font-mono text-sm font-extrabold border-2 border-black px-2.5 py-1 rounded-lg ${
+                    pointsEarned >= 0
+                      ? 'bg-[#DFFF00] text-black shadow-[1.5px_1.5px_0_#000]'
+                      : 'bg-[#FF6B35] text-white shadow-[1.5px_1.5px_0_#000]'
+                  }`}
+                >
+                  {pointsEarned >= 0 ? `+${pointsEarned}` : pointsEarned} XP
+                </span>
+              </div>
+            </BrutalCard>
+          );
+        })}
       </div>
     </div>
   );
