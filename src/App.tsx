@@ -917,7 +917,13 @@ export default function App() {
                 secretWord={myWord}
                 role={myRole}
                 isHost={isOnlinePlay ? multiplayer.isHost : true}
+                allVotedOrSkipped={isOnlinePlay ? multiplayer.room?.gameState === 'elimination' : false}
                 onCastVote={handleCastVoteOnTarget}
+                onSkipVote={() => {
+                  if (me?.id) {
+                    multiplayer.skipVote(me.id);
+                  }
+                }}
                 onConfirmVotesComplete={handleConfirmVotesAndEliminate}
                 language={language}
               />

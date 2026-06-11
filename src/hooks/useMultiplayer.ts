@@ -49,6 +49,7 @@ export interface UseMultiplayerReturn {
   proceedToDiscussion: () => void;
   triggerVoting: () => void;
   castVote: (voterPlayerId: string, targetPlayerId: string) => void;
+  skipVote: (voterPlayerId: string) => void;
   confirmElimination: () => void;
   mrWhiteGuess: (wordGuess: string) => void;
   playAgain: () => void;
@@ -358,6 +359,14 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
     [roomCode]
   );
 
+  const skipVote = useCallback(
+    (voterPlayerId: string) => {
+      if (!roomCode) return;
+      socketManager.skipVote(roomCode, voterPlayerId);
+    },
+    [roomCode]
+  );
+
   const confirmElimination = useCallback(() => {
     if (!roomCode) return;
     socketManager.confirmElimination(roomCode);
@@ -400,6 +409,7 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
     proceedToDiscussion,
     triggerVoting,
     castVote,
+    skipVote,
     confirmElimination,
     mrWhiteGuess,
     playAgain,

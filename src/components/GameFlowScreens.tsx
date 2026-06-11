@@ -682,7 +682,9 @@ interface VotingRoundViewProps {
   secretWord: string;
   role: RoleType;
   isHost: boolean;
+  allVotedOrSkipped?: boolean;
   onCastVote: (targetPlayerId: string) => void;
+  onSkipVote: () => void;
   onConfirmVotesComplete: () => void;
   language: 'ID' | 'EN';
 }
@@ -695,7 +697,9 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
   secretWord,
   role,
   isHost,
+  allVotedOrSkipped = false,
   onCastVote,
+  onSkipVote,
   onConfirmVotesComplete,
   language
 }) => {
@@ -703,11 +707,15 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
     myVotedForId ?? null
   );
   const livingPlayers = players.filter((p) => !p.isEliminated);
-
+  const hasSkipped = myVotedForId === 'SKIP';
   const lockedVote = hasVoted || !!myVotedForId;
 
+  // Count how many living players have voted or skipped
+  const votedCount = livingPlayers.filter(p => p.votedForId !== undefined).length;
+  const totalLiving = livingPlayers.length;
+
   useEffect(() => {
-    if (myVotedForId) {
+    if (myVotedForId && myVotedForId !== 'SKIP') {
       setSelectedPlayerId(myVotedForId);
     }
   }, [myVotedForId]);
@@ -719,11 +727,45 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
     onCastVote(id);
   };
 
+  const handleSkipVote = () => {
+    if (lockedVote) return;
+    sfx.playClick();
+    onSkipVote();
+  };
+
+  // Determine the selected target display name
+  const selectedDisplayName = selectedPlayerId && selectedPlayerId !== 'SKIP'
+    ? players.find((p) => p.id === selectedPlayerId)?.name
+    : null;
+
   return (
     <div className="min-h-dvh bg-[#F7F4EE] py-6 px-4 max-w-[1280px] mx-auto w-full flex flex-col justify-between select-none">
       {/* Upper Anti Peek header */}
       <div className="mb-4">
         <WordRevealShield secretWord={secretWord} role={role} language={language} />
+      </div>
+
+      {/* Voting Progress Bar */}
+      <div className="mb-4 p-3 rounded-xl border-2 border-black bg-[#12182B] space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
+            {language === 'ID' ? 'Progress Voting' : 'Voting Progress'}
+          </span>
+          <span className="text-xs font-mono font-bold text-[#DFFF00]">
+            {votedCount}/{totalLiving}
+          </span>
+        </div>
+        <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-[#DFFF00] transition-all duration-500 ease-out"
+            style={{ width: `${(votedCount / totalLiving) * 100}%` }}
+          />
+        </div>
+        <p className="text-[9px] font-mono text-slate-500 text-center">
+          {language === 'ID'
+            ? `Menunggu ${totalLiving - votedCount} pemain lagi untuk vote atau skip`
+            : `Waiting for ${totalLiving - votedCount} more player(s) to vote or skip`}
+        </p>
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch mb-6">
@@ -742,7 +784,7 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
             <span className="font-mono text-xs font-bold text-red-500">POLLING_SECURE</span>
           </div>
 
-          {lockedVote && (
+          {lockedVote && !hasSkipped && (
             <div className="p-3 rounded-xl border-2 border-[#DFFF00] bg-[#DFFF00]/20 text-[10px] font-mono font-bold text-center uppercase">
               {language === 'ID'
                 ? 'Suara Anda terkunci. Satu suara per ronde.'
@@ -750,11 +792,20 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
             </div>
           )}
 
+          {hasSkipped && (
+            <div className="p-3 rounded-xl border-2 border-slate-400 bg-slate-100 text-[10px] font-mono font-bold text-center uppercase text-slate-600">
+              {language === 'ID'
+                ? 'Anda memilih untuk skip voting ronde ini.'
+                : 'You chose to skip voting this round.'}
+            </div>
+          )}
+
           {/* Interactive Player Grid with Radio checkings */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {livingPlayers.map((player) => {
-              const isSelected = selectedPlayerId === player.id;
+              const isSelected = selectedPlayerId === player.id && player.id !== 'SKIP';
               const isMe = player.id === currentPlayerId;
+              const playerHasVoted = player.votedForId !== undefined;
               return (
                 <button
                   key={player.id}
@@ -782,6 +833,13 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
                     </span>
                   )}
 
+                  {/* Show voted/skipped status badge */}
+                  {playerHasVoted && !isMe && (
+                    <span className="absolute top-2 right-2 text-[7px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-300 uppercase">
+                      {player.votedForId === 'SKIP' ? 'SKIP' : 'VOTED'}
+                    </span>
+                  )}
+
                   <div className="flex justify-center mb-2 mt-1">
                     <PixelAvatar avatar={player.avatar} size="md" />
                   </div>
@@ -796,6 +854,18 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
               );
             })}
           </div>
+
+          {/* Skip Vote Button */}
+          {!lockedVote && (
+            <button
+              onClick={handleSkipVote}
+              className="w-full border-2 border-dashed border-slate-400 rounded-xl p-3 text-center text-slate-500 font-mono text-xs font-bold uppercase hover:border-slate-600 hover:text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+            >
+              {language === 'ID'
+                ? '⏭️ SKIP VOTING (Tidak memilih siapapun)'
+                : '⏭️ SKIP VOTING (Don\'t vote for anyone)'}
+            </button>
+          )}
         </div>
 
         {/* Orbit control dashboard status detail */}
@@ -809,12 +879,22 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
               <span className="text-[10.5px] font-mono text-slate-600 block leading-tight font-extrabold uppercase">
                 VOTE MEMILIH / CHOSEN TARGET:
               </span>
-              {selectedPlayerId ? (
+              {hasSkipped ? (
+                <div className="flex items-center gap-3 bg-slate-100 p-2.5 rounded-lg border border-slate-400">
+                  <span className="text-lg">⏭️</span>
+                  <div>
+                    <span className="text-xs font-bold block leading-none text-slate-600">
+                      {language === 'ID' ? 'Skip Voting' : 'Skipped'}
+                    </span>
+                    <span className="text-[9px] font-mono text-slate-500 mt-1 block">NO VOTE CAST</span>
+                  </div>
+                </div>
+              ) : selectedDisplayName ? (
                 <div className="flex items-center gap-3 bg-white p-2.5 rounded-lg border border-black/35">
                   <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
                   <div>
                     <span className="text-xs font-bold block leading-none">
-                      {players.find((p) => p.id === selectedPlayerId)?.name}
+                      {selectedDisplayName}
                     </span>
                     <span className="text-[9px] font-mono text-red-500 mt-1 block">ELIMINATE CONFIRMED</span>
                   </div>
@@ -833,25 +913,34 @@ export const VotingRoundView: React.FC<VotingRoundViewProps> = ({
             </p>
           </div>
 
-          {isHost ? (
+          {allVotedOrSkipped ? (
             <div className="pt-6">
-              <BrutalButton
-                variant="lime"
-                size="lg"
-                idLabel="KONFIRMASI HASIL HUKUMAN"
-                enLabel="EVALUATE AND ELIMINATE"
-                onClick={onConfirmVotesComplete}
-                className="w-full text-xs"
-                disabled={!selectedPlayerId}
-                icon={<RefreshCw className="w-4 h-4 ml-1" />}
-              />
+              {isHost ? (
+                <BrutalButton
+                  variant="lime"
+                  size="lg"
+                  idLabel="KONFIRMASI HASIL HUKUMAN"
+                  enLabel="EVALUATE AND ELIMINATE"
+                  onClick={onConfirmVotesComplete}
+                  className="w-full text-xs"
+                  icon={<RefreshCw className="w-4 h-4 ml-1" />}
+                />
+              ) : (
+                <div className="p-3 rounded-xl border-2 border-[#DFFF00] bg-[#DFFF00]/20 text-[10px] font-mono font-bold text-center uppercase">
+                  {language === 'ID'
+                    ? '✅ Semua suara masuk! Menunggu host konfirmasi eliminasi...'
+                    : '✅ All votes in! Waiting for host to confirm elimination...'}
+                </div>
+              )}
             </div>
           ) : (
-            <p className="pt-6 text-[10px] font-mono text-slate-500 text-center uppercase">
-              {language === 'ID'
-                ? 'Menunggu host mengonfirmasi eliminasi...'
-                : 'Waiting for host to confirm elimination...'}
-            </p>
+            <div className="pt-6">
+              <p className="text-[10px] font-mono text-slate-500 text-center uppercase">
+                {language === 'ID'
+                  ? `Menunggu ${totalLiving - votedCount} pemain lagi memberikan suara...`
+                  : `Waiting for ${totalLiving - votedCount} more player(s) to vote...`}
+              </p>
+            </div>
           )}
         </div>
       </div>

@@ -1325,12 +1325,72 @@ io.on('connection', (socket: Socket) => {
     );
 
     broadcastRoom(data.roomCode, room);
+
+    // Check if all living players have voted or skipped
+    checkVotingComplete(room);
   });
+
+  // Event: Skip Vote (player chooses not to vote)
+  socket.on('skip-vote', (data: {
+    roomCode: string;
+    voterPlayerId?: string;
+  }) => {
+    const room = getRoom(data.roomCode);
+    if (!room || room.gameState !== 'voting') return;
+
+    const voter = data.voterPlayerId
+      ? getPlayerForSocket(room, socket.id, data.voterPlayerId)
+      : room.players.find((p) => p.socketId === socket.id) ?? null;
+
+    if (!voter) return;
+    const isGhost = voter.specialRole === 'ghost';
+    if (voter.isEliminated && !isGhost) return;
+    if (voter.votedForId) return; // already voted/skipped this round
+
+    voter.votedForId = 'SKIP'; // Mark as skipped
+    console.log(`[Skip Vote] ${voter.name} skipped voting in Room ${data.roomCode}`);
+
+    broadcastRoom(data.roomCode, room);
+    checkVotingComplete(room);
+  });
+
+  // Helper: Check if all living players have voted or skipped
+  // When all done, auto-transitions to elimination phase
+  function checkVotingComplete(room: Room) {
+    const livingPlayers = room.players.filter(p => !p.isEliminated);
+    const allVotedOrSkipped = livingPlayers.every(p => p.votedForId !== undefined);
+
+    if (allVotedOrSkipped) {
+      console.log(`[Voting Complete] All players voted/skipped in Room ${room.code}, moving to elimination...`);
+      // Transition to elimination phase — host must confirm
+      room.gameState = 'elimination';
+      broadcastRoom(room.code, room);
+    }
+  }
 
   // Event: Confirm elimination (resolves special role effects then checks win)
   socket.on('confirm-elimination', (data: { roomCode: string }) => {
     const room = getRoom(data.roomCode);
     if (!room) return;
+
+    // Only allow when all players have voted/skipped (gameState = 'elimination')
+    if (room.gameState !== 'elimination') {
+      socket.emit('error-msg', {
+        messageID: 'Tunggu semua pemain memberikan suara atau skip terlebih dahulu.',
+        messageEN: 'Wait for all players to vote or skip first.'
+      });
+      return;
+    }
+
+    // Only host can confirm elimination
+    const host = room.players.find((p) => p.isHost && p.socketId === socket.id);
+    if (!host) {
+      socket.emit('error-msg', {
+        messageID: 'Hanya host yang dapat mengonfirmasi eliminasi.',
+        messageEN: 'Only the host can confirm elimination.'
+      });
+      return;
+    }
 
     const living = room.players.filter((p) => !p.isEliminated);
     if (living.length === 0) return;

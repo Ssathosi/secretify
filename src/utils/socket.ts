@@ -241,6 +241,14 @@ class SocketManager {
   }
 
   /**
+   * Skip vote (choose not to vote this round)
+   */
+  skipVote(roomCode: string, voterPlayerId?: string): void {
+    if (!this.socket) return;
+    this.socket.emit('skip-vote', { roomCode, voterPlayerId });
+  }
+
+  /**
    * Confirm elimination and proceed
    */
   confirmElimination(roomCode: string): void {
