@@ -1429,6 +1429,7 @@ export const RealityWinnerView: React.FC<RealityWinnerProps> = ({
               (winnerRoleGroup === 'CIVILIANS' && p.role === 'SIVIL') ||
               (winnerRoleGroup === 'UNDERCOVERS' && p.role === 'UNDERCOVER') ||
               (winnerRoleGroup === 'MR_WHITE' && p.role === 'MR_WHITE');
+            const gained = isWinner ? 120 : 30;
 
             return (
               <div 
@@ -1464,6 +1465,14 @@ export const RealityWinnerView: React.FC<RealityWinnerProps> = ({
                   }`}>
                     {p.isEliminated ? 'DEAD' : 'ALIVE'}
                   </span>
+                  
+                  {/* Rewards Breakdown */}
+                  <div className="text-right font-mono text-[9px] mt-1 space-y-0.5">
+                    <span className="text-emerald-600 block font-bold">+{gained} XP</span>
+                    <span className="text-amber-600 block font-bold">+{Math.floor(gained / 2)} Coins (koin)</span>
+                    <span className="text-purple-600 block font-bold">Streak: +10 Coins</span>
+                  </div>
+
                   <span className="text-[7px] font-mono text-slate-400 font-bold tracking-wide">
                     {p.role === 'MR_WHITE' ? '???' : p.word}
                   </span>

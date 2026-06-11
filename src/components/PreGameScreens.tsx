@@ -727,7 +727,8 @@ export const GameRulesModal: React.FC<GameRulesModalProps> = ({ isOpen, onClose,
 interface HomeViewProps {
   playerName: string;
   avatar: string;
-  currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number } | null;
+  currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number; coins?: number } | null;
+  coins?: number;
   onQuickPlay: () => void;
   onCreateRoom: () => void;
   onJoinRoom: (code: string) => void;
@@ -739,6 +740,7 @@ interface HomeViewProps {
   onOpenSettings: () => void;
   onOpenRoleGuide: () => void;
   onGoToLogin: () => void;
+  onClaimDailyReward?: () => void;
   language: 'ID' | 'EN';
 }
 
@@ -746,6 +748,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   playerName,
   avatar,
   currentUser,
+  coins = 0,
   onQuickPlay,
   onCreateRoom,
   onJoinRoom,
@@ -757,6 +760,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenSettings,
   onOpenRoleGuide,
   onGoToLogin,
+  onClaimDailyReward,
   language
 }) => {
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -837,6 +841,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </div>
                   <div className="bg-[#2EC4B6] text-black border-2 border-black px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase">
                     {(currentUser ? currentUser.points : 0).toLocaleString()} pts
+                  </div>
+                  <div className="bg-[#FFD23F] text-black border-2 border-black px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase flex items-center gap-1">
+                    <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                    {coins.toLocaleString()} GC
                   </div>
                 </div>
               </div>
@@ -972,7 +980,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <input
                 type="text"
                 value={roomCodeInput}
-                onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
+                onChange={(e) => setRoomCodeInput(e.target.value.replace('#', '').toUpperCase())}
                 maxLength={6}
                 placeholder="Masukkan Kode / Enter code..."
                 className="flex-1 border-3 border-black rounded-xl px-4 py-3 bg-[#F0EDE6] font-mono font-bold shadow-[2px_2px_0px_#000] focus:outline-none focus:ring-4 focus:ring-[#FFD23F] placeholder:text-slate-400 text-center uppercase tracking-widest text-lg"
@@ -1013,7 +1021,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
               {claimStatus === 'unclaimed' ? (
                 <button
-                  onClick={() => setClaimStatus('claimed')}
+                  onClick={() => {
+                    setClaimStatus('claimed');
+                    onClaimDailyReward?.();
+                  }}
                   className="bg-[#DFFF00] text-black border-2 border-black font-mono font-extrabold text-[11px] px-3.5 py-2.5 rounded-lg brutal-shadow-sm brutal-press cursor-pointer uppercase"
                 >
                   AMBIL / TAKE
@@ -1146,6 +1157,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       maxPlayers: 8,
       rounds,
       specialRoles: enabledSpecialRoles.length > 0,
+      enabledSpecialRoles,
       voiceChat: false,
       gameMode: mode,
       wordPack,

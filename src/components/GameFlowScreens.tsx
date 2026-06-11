@@ -975,9 +975,11 @@ export const MatchWinnerView: React.FC<MatchWinnerViewProps> = ({
                       <span className="text-[9px] font-mono text-slate-400 block">ROLE: {p.role}</span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-emerald-600 block">+{gained} pts</span>
-                    <span className="text-[8px] font-mono text-slate-400">TOTAL: {p.points + gained}</span>
+                  <div className="text-right space-y-0.5">
+                    <span className="font-mono font-bold text-emerald-600 block">+{gained} XP</span>
+                    <span className="font-mono font-bold text-amber-600 block">+{Math.floor(gained / 2)} Coins (koin)</span>
+                    <span className="font-mono font-bold text-purple-600 block">Streak: +10 Coins</span>
+                    <span className="text-[8px] font-mono text-slate-400 block">TOTAL: {p.points + gained} XP</span>
                   </div>
                 </div>
               );

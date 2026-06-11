@@ -56,7 +56,9 @@ export const LiveLeaderboardView: React.FC<LiveLeaderboardViewProps> = ({ onBack
   const rest = entries.slice(3);
 
   return (
-    <div className="min-h-dvh bg-[#12182B] text-white px-4 py-8 max-w-[700px] mx-auto w-full select-none">
+    <div className="min-h-dvh bg-[#12182B] text-white w-full select-none">
+      {/* Full-bleed background wrapper with centered content */}
+      <div className="max-w-[800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       {/* Back */}
       <button
         onClick={onBack}
@@ -71,7 +73,7 @@ export const LiveLeaderboardView: React.FC<LiveLeaderboardViewProps> = ({ onBack
         <div className="relative mx-auto w-20 h-20 bg-[#FFD23F] border-4 border-black rounded-2xl flex items-center justify-center rotate-3 shadow-[6px_6px_0px_#FF6B35] mb-4">
           <Trophy className="w-10 h-10 text-black" />
         </div>
-        <h1 className="text-4xl font-black uppercase tracking-tighter leading-none">
+        <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter leading-none">
           {language === 'ID' ? 'PAPAN PERINGKAT' : 'GLOBAL LEADERBOARD'}
         </h1>
         <span className="font-mono text-xs text-[#DFFF00] uppercase tracking-widest block mt-1">
@@ -190,6 +192,7 @@ export const LiveLeaderboardView: React.FC<LiveLeaderboardViewProps> = ({ onBack
       )}
 
       <div className="h-8" />
+      </div>
     </div>
   );
 };

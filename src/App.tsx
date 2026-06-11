@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Play, Clipboard, HelpCircle, Heart, Star, Layers, CheckSquare, Sparkles, AlertCircle, Laptop, Landmark, ShieldAlert } from 'lucide-react';
 import { Player, RoleType, Clue, ChatMessage, MOCK_PLAYERS, MOCK_CLUES, MOCK_CHAT_MESSAGES, MOCK_MATCH_HISTORY, MOCK_SHOP_ITEMS, MOCK_LEADER_USERS } from './types';
 import { SplashView, OnboardingView, LoginView, GameRulesModal, HomeView, LobbyView } from './components/PreGameScreens';
@@ -23,6 +23,7 @@ import { getRandomWordPair } from './utils/wordPacks';
 import { BilingualText, ScallopLine } from './components/BrutalComponents';
 import { sfx } from './utils/audio';
 import { useMultiplayer } from './hooks/useMultiplayer';
+import { useEconomy } from './hooks/useEconomy';
 import {
   mapChatMessages,
   mapRoomPlayers,
@@ -91,6 +92,39 @@ export default function App() {
   const [realityEliminatedPlayer, setRealityEliminatedPlayer] = useState<Player | null>(null);
   const [realityWinnerRoleGroup, setRealityWinnerRoleGroup] = useState<'CIVILIANS' | 'UNDERCOVERS' | 'MR_WHITE' | null>(null);
 
+  // Economy system — wallet & inventory
+  const economy = useEconomy(currentUser);
+
+  // Track game rewards to avoid duplicate coins
+  const coinsRewardedRef = useRef<Set<string>>(new Set());
+
+  // Award coins when game ends (winner screen)
+  useEffect(() => {
+    if (activeScreen === 'winner' || activeScreen === 'reality_winner') {
+      const gameKey = `${activeScreen}-${Date.now()}`;
+      if (!coinsRewardedRef.current.has(gameKey)) {
+        coinsRewardedRef.current.add(gameKey);
+        
+        // Determine reward amount based on role and outcome
+        let reward = 50; // base participation reward
+        if (activeScreen === 'winner') {
+          const myRole = isOnlinePlay
+            ? multiplayer.currentPlayer?.role
+            : playersList.find(p => p.id === '1')?.role;
+          const winnerGroup = isOnlinePlay
+            ? multiplayer.room.winnerRoleGroup
+            : 'CIVILIANS'; // mock mode always shows civilian win
+          
+          if (myRole === winnerGroup) {
+            reward = 100; // winner bonus
+          }
+        }
+        
+        economy.addCoinsReward(reward);
+      }
+    }
+  }, [activeScreen]);
+
   // Trigger Language toggle
   const toggleLanguage = () => {
     setLanguage((prev) => (prev === 'ID' ? 'EN' : 'ID'));
@@ -124,6 +158,7 @@ export default function App() {
     setPlayersList((prev) =>
       prev.map((p) => (p.id === '1' ? { ...p, name: user.username, avatar: user.avatar } : p))
     );
+    // Economy will auto-refresh when currentUser changes via useEconomy hook
     setActiveScreen('home');
   };
 
@@ -269,6 +304,7 @@ export default function App() {
         wordPack: packID,
         debateDurationSec,
         specialRoles: specialRoles.length > 0,
+        enabledSpecialRoles: specialRoles,
         voiceChat: false,
         gameMode
       });
@@ -719,395 +755,13 @@ export default function App() {
 
   return (
     <div className="min-h-dvh bg-[#F0EDE6] antialiased select-none font-sans text-stone-900">
-      {/* 2-Column Dashboard viewport layout satisfying desktop rules */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 max-w-[1440px] mx-auto min-h-dvh relative">
+      {/* Full-width viewport layout */}
+      <div className="max-w-[1440px] mx-auto min-h-dvh relative">
 
-        {/* Column LEFT: The floating Interactive Switcher / Simulator board */}
-        <div className="xl:col-span-3 bg-[#12182B] text-white p-6 border-b-3 xl:border-b-0 xl:border-r-3 border-black flex flex-col justify-between">
-          <div className="space-y-6">
-            <div className="flex items-center gap-2 border-b border-white/10 pb-4">
-              <span className="p-1 px-2.5 bg-[#DFFF00] text-black font-black text-xs font-mono rounded brutal-shadow-sm rotate-3">
-                SEC
-              </span>
-              <div>
-                <h2 className="font-mono text-[10px] font-black text-[#DFFF00] tracking-widest leading-none uppercase">
-                  SIMULATOR TOOLKIT
-                </h2>
-                <h3 className="font-bold text-xs uppercase text-slate-300 mt-1">Design Playground</h3>
-              </div>
-            </div>
+        {/* Main application container */}
+        <div className="flex flex-col min-h-dvh overflow-x-hidden">
 
-            {/* Helper tips */}
-            <div className="bg-slate-900 p-4 border border-slate-700 rounded-xl text-[11px] font-medium leading-relaxed font-sans text-slate-300 relative bg-[radial-gradient(#1e293b_1px,transparent_1px)] bg-[size:10px_10px]">
-              <span className="absolute -top-2 left-4 bg-[#FF6B35] text-white font-mono text-[8px] px-1.5 rounded border border-black font-extrabold uppercase">
-                INFO
-              </span>
-              <p>
-                {language === 'ID'
-                  ? 'Gunakan pengalih di bawah untuk melewati alur pendaftaran secara instan dan melihat semua model visual 100% identik!'
-                  : 'Use switcher controls below to jump screens instantly and inspect individual design mockups!'}
-              </p>
-            </div>
 
-            {/* List links */}
-            <div className="space-y-4">
-              <span className="text-[9px] font-mono font-bold uppercase text-[#FF6B35] tracking-wider block">
-                PILIH PREVIEW / SELECT MOCK SCREEN:
-              </span>
-
-              {/* Group 1: Pre-game */}
-              <div className="space-y-1.5">
-                <span className="text-[8px] font-mono font-bold uppercase text-slate-400 block tracking-wide">
-                  PHASE A: PRE-GAME
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => setActiveScreen('splash')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'splash'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    1. Splash View
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('onboarding')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'onboarding'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    2. Onboarding
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('login')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'login'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    3. Profile Setup
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('home')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'home'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    4. Home Hub
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPlayMode('mock');
-                      setPlayersList(MOCK_PLAYERS);
-                      setCluesList(MOCK_CLUES);
-                      setChatMessages(MOCK_CHAT_MESSAGES);
-                      setActiveScreen('lobby');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'lobby'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    5. Room Lobby
-                  </button>
-                  <button
-                    onClick={() => setIsRulesOpen(true)}
-                    className="text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700 flex items-center justify-between"
-                  >
-                    <span>6. Rules Pop</span>
-                    <span>⚡</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Group 2: Game Flow */}
-              <div className="space-y-1.5">
-                <span className="text-[8px] font-mono font-bold uppercase text-slate-400 block tracking-wide">
-                  PHASE B: ACTIVE GAME LOOP
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => {
-                      setPlayMode('mock');
-                      handleStartActiveGame(5, 'pack_food', [], 90, 'Classic');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'role_assign'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    7. Role Folder
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPlayMode('mock');
-                      setPlayersList(MOCK_PLAYERS);
-                      setCluesList(MOCK_CLUES);
-                      setActiveScreen('clue_round');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'clue_round'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    8. Clue Round
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPlayMode('mock');
-                      setPlayersList(MOCK_PLAYERS);
-                      setChatMessages(MOCK_CHAT_MESSAGES);
-                      setActiveScreen('discussion');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'discussion'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    9. Debate Chat
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPlayMode('mock');
-                      setPlayersList(MOCK_PLAYERS);
-                      setActiveScreen('voting');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'voting'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    10. Orbit Vote
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPlayMode('mock');
-                      setPlayersList(MOCK_PLAYERS);
-                      setActiveScreen('winner');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'winner'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    11. Scoreboard
-                  </button>
-                </div>
-              </div>
-
-              {/* Group 3: Secondary Meta tabs */}
-              <div className="space-y-1.5">
-                <span className="text-[8px] font-mono font-bold uppercase text-slate-400 block tracking-wide">
-                  PHASE C: UTILITY PANELS
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => setActiveScreen('profile')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'profile'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    12. Avatar Lab
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('shop')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'shop'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    13. Trade Store
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('leaders')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'leaders'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    14. Rank Leader
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('history')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'history'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    15. Match history
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('settings')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'settings'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    16. System Pref
-                  </button>
-                  <button
-                    onClick={() => setActiveScreen('role_guide')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'role_guide'
-                        ? 'bg-[#DFFF00] text-black border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    16b. Role Guide
-                  </button>
-                </div>
-              </div>
-
-              {/* Group 4: Reality Mode */}
-              <div className="space-y-1.5">
-                <span className="text-[8px] font-mono font-bold uppercase text-[#FF6B35] block tracking-wide">
-                  PHASE D: REALITY OFFLINE
-                </span>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => setActiveScreen('reality_setup')}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'reality_setup'
-                        ? 'bg-[#FF6B35] text-white border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    17. Setup
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Autoseed 4 players
-                      handleStartRealityGame([
-                        { id: '1', name: 'Andi', avatar: 'detective', level: 10, points: 1000, isReady: true, isHost: true, isEliminated: false, votesReceived: 0 },
-                        { id: '2', name: 'Siti', avatar: 'cat', level: 12, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0 },
-                        { id: '3', name: 'Budi', avatar: 'boy1', level: 14, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0 },
-                        { id: '4', name: 'Rian', avatar: 'girl1', level: 9, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0 }
-                      ], 'pack_food', 3, 1, false);
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'reality_reveal'
-                        ? 'bg-[#FF6B35] text-white border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    18. Reveal Roles
-                  </button>
-                  <button
-                    onClick={() => {
-                      const testPlayers = [
-                        { id: '1', name: 'Andi', avatar: 'detective', level: 10, points: 1000, isReady: true, isHost: true, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' },
-                        { id: '2', name: 'Siti', avatar: 'cat', level: 12, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0, role: 'UNDERCOVER' as const, word: 'GULAI' },
-                        { id: '3', name: 'Budi', avatar: 'boy1', level: 14, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' },
-                        { id: '4', name: 'Rian', avatar: 'girl1', level: 9, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' }
-                      ];
-                      setRealityPlayers(testPlayers);
-                      setRealityCivilianWord('RENDANG');
-                      setRealityUndercoverWord('GULAI');
-                      setRealityRound(1);
-                      setActiveScreen('reality_debate');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'reality_debate'
-                        ? 'bg-[#FF6B35] text-white border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    19. Debate
-                  </button>
-                  <button
-                    onClick={() => {
-                      const testPlayers = [
-                        { id: '1', name: 'Andi', avatar: 'detective', level: 10, points: 1000, isReady: true, isHost: true, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' },
-                        { id: '2', name: 'Siti', avatar: 'cat', level: 12, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0, role: 'UNDERCOVER' as const, word: 'GULAI' },
-                        { id: '3', name: 'Budi', avatar: 'boy1', level: 14, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' },
-                        { id: '4', name: 'Rian', avatar: 'girl1', level: 9, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' }
-                      ];
-                      setRealityPlayers(testPlayers);
-                      setRealityCivilianWord('RENDANG');
-                      setRealityUndercoverWord('GULAI');
-                      setActiveScreen('reality_voting');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'reality_voting'
-                        ? 'bg-[#FF6B35] text-white border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    20. Ballot
-                  </button>
-                  <button
-                    onClick={() => {
-                      const testPlayers = [
-                        { id: '1', name: 'Andi', avatar: 'detective', level: 10, points: 1000, isReady: true, isHost: true, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' },
-                        { id: '2', name: 'Siti', avatar: 'cat', level: 12, points: 1000, isReady: true, isHost: false, isEliminated: true, votesReceived: 2, role: 'UNDERCOVER' as const, word: 'GULAI' },
-                        { id: '3', name: 'Budi', avatar: 'boy1', level: 14, points: 1000, isReady: true, isHost: false, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' }
-                      ];
-                      setRealityPlayers(testPlayers);
-                      setRealityEliminatedPlayer(testPlayers[1]);
-                      setRealityCivilianWord('RENDANG');
-                      setRealityUndercoverWord('GULAI');
-                      setRealityVotingTallies({ '2': 3 });
-                      setActiveScreen('reality_elimination');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'reality_elimination'
-                        ? 'bg-[#FF6B35] text-white border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    21. Elim
-                  </button>
-                  <button
-                    onClick={() => {
-                      const testPlayers = [
-                        { id: '1', name: 'Andi', avatar: 'detective', level: 10, points: 1000, isReady: true, isHost: true, isEliminated: false, votesReceived: 0, role: 'SIVIL' as const, word: 'RENDANG' },
-                        { id: '2', name: 'Siti', avatar: 'cat', level: 12, points: 1000, isReady: true, isHost: false, isEliminated: true, votesReceived: 2, role: 'UNDERCOVER' as const, word: 'GULAI' }
-                      ];
-                      setRealityPlayers(testPlayers);
-                      setRealityWinnerRoleGroup('CIVILIANS');
-                      setRealityCivilianWord('RENDANG');
-                      setRealityUndercoverWord('GULAI');
-                      setActiveScreen('reality_winner');
-                    }}
-                    className={`text-[10px] font-mono text-left px-2.5 py-1.5 rounded transition font-bold border ${
-                      activeScreen === 'reality_winner'
-                        ? 'bg-[#FF6B35] text-white border-black font-black'
-                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    22. Over
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sidebar Footer branding */}
-          <div className="pt-4 border-t border-white/10 text-slate-400 font-mono text-[9px] text-center">
-            Secretify Redesign Lab © 21st Cent
-          </div>
-        </div>
-
-        {/* Column RIGHT: The actual simulated application container frame */}
-        <div className="xl:col-span-9 flex flex-col justify-between overflow-x-hidden">
           {/* Main client application view router mapping */}
           <div className="flex-1 w-full relative">
             {activeScreen === 'splash' && (
@@ -1138,6 +792,7 @@ export default function App() {
                 playerName={playerName}
                 avatar={playerAvatar}
                 currentUser={currentUser}
+                coins={economy.coins}
                 onQuickPlay={handleQuickPlay}
                 onCreateRoom={handleCreateRoom}
                 onJoinRoom={handleJoinPrivateRoom}
@@ -1149,6 +804,7 @@ export default function App() {
                 onOpenSettings={() => setActiveScreen('settings')}
                 onOpenRoleGuide={() => setActiveScreen('role_guide')}
                 onGoToLogin={() => setActiveScreen('login')}
+                onClaimDailyReward={() => economy.addCoinsReward(150)}
                 language={language}
               />
             )}
@@ -1325,6 +981,7 @@ export default function App() {
                 playerName={playerName}
                 avatar={playerAvatar}
                 currentUser={currentUser}
+                ownedItemIds={economy.ownedItemIds}
                 onUpdateNameAndAvatar={async (n, a) => {
                   setPlayerName(n);
                   setPlayerAvatar(a);
@@ -1395,6 +1052,9 @@ export default function App() {
               <ShopView
                 shopItems={MOCK_SHOP_ITEMS}
                 language={language}
+                coins={economy.coins}
+                ownedItemIds={economy.ownedItemIds}
+                onPurchase={economy.purchaseItem}
                 onClose={() => setActiveScreen('home')}
               />
             )}
@@ -1425,7 +1085,6 @@ export default function App() {
             )}
           </div>
         </div>
-
       </div>
 
       {/* Renders global modal rules overlay explicitly */}

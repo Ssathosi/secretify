@@ -15,7 +15,8 @@ import { isValidClerkKey } from './AuthView';
 interface ProfileViewProps {
   playerName: string;
   avatar: string;
-  currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number } | null;
+  currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number; coins?: number } | null;
+  ownedItemIds?: string[];
   onUpdateNameAndAvatar: (name: string, av: string) => void;
   onLogout?: () => void;
   onDeleteAccount?: () => Promise<void>;
@@ -107,6 +108,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   playerName,
   avatar,
   currentUser,
+  ownedItemIds = [],
   onUpdateNameAndAvatar,
   onLogout,
   onDeleteAccount,
@@ -117,6 +119,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [activeAvatar, setActiveAvatar] = useState(avatar);
 
   const avatarsList = ['detective', 'cat', 'spy', 'villain', 'hacker', 'boy1', 'girl1', 'boy2', 'glasses-girl', 'monster'];
+
+  // Map shop item IDs to avatar names for owned check
+  const shopToAvatarMap: Record<string, string> = {
+    'shop_det': 'detective',
+    'shop_spy': 'spy',
+    'shop_vil': 'villain',
+    'shop_hack': 'hacker',
+  };
+  const shopAvatarNames = Object.values(shopToAvatarMap);
+  const isAvatarLocked = (avName: string) => {
+    if (!shopAvatarNames.includes(avName)) return false; // base avatars are free
+    const itemId = Object.entries(shopToAvatarMap).find(([, v]) => v === avName)?.[0];
+    return itemId ? !ownedItemIds.includes(itemId) : false;
+  };
 
   const handleUpdate = () => {
     if (editingName.trim()) {
@@ -181,21 +197,32 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </label>
 
                 <div className="grid grid-cols-5 gap-3 p-3 bg-[#F0EDE6] rounded-xl border-2 border-black">
-                  {avatarsList.map((av) => (
-                    <button
-                      key={av}
-                      onClick={() => setActiveAvatar(av)}
-                      className={`p-1 rounded-lg border-2 flex items-center justify-center transition-all ${
-                        activeAvatar === av
-                          ? 'bg-[#FFD23F] border-black brutal-shadow-sm scale-105 font-black'
-                          : 'bg-white border-black/35 hover:bg-black/5'
-                      }`}
-                    >
-                      <div className="w-12 h-12 rounded-md overflow-hidden">
-                        <PixelAvatar avatar={av} size="sm" className="w-full h-full border-none shadow-none" />
-                      </div>
-                    </button>
-                  ))}
+                  {avatarsList.map((av) => {
+                    const locked = isAvatarLocked(av);
+                    return (
+                      <button
+                        key={av}
+                        onClick={() => !locked && setActiveAvatar(av)}
+                        disabled={locked}
+                        className={`p-1 rounded-lg border-2 flex items-center justify-center transition-all relative ${
+                          activeAvatar === av
+                            ? 'bg-[#FFD23F] border-black brutal-shadow-sm scale-105 font-black'
+                            : locked
+                              ? 'bg-slate-200 border-black/20 opacity-50 cursor-not-allowed'
+                              : 'bg-white border-black/35 hover:bg-black/5 cursor-pointer'
+                        }`}
+                      >
+                        <div className="w-12 h-12 rounded-md overflow-hidden">
+                          <PixelAvatar avatar={av} size="sm" className="w-full h-full border-none shadow-none" />
+                        </div>
+                        {locked && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg">
+                            <span className="text-xs">🔒</span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -290,25 +317,49 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 interface ShopViewProps {
   shopItems: ShopItem[];
   language: 'ID' | 'EN';
+  coins: number;
+  ownedItemIds: string[];
+  onPurchase: (item: ShopItem) => Promise<{ success: boolean; error?: string }>;
   onClose: () => void;
 }
 
-export const ShopView: React.FC<ShopViewProps> = ({ shopItems, language, onClose }) => {
-  const [wallet, setWallet] = useState(1250);
-  const [ownedItemIds, setOwnedItemIds] = useState<string[]>(['emo_fire', 'shop_det']);
+export const ShopView: React.FC<ShopViewProps> = ({ shopItems, language, coins, ownedItemIds, onPurchase, onClose }) => {
   const [filterTab, setFilterTab] = useState<'all' | 'character' | 'wordpack' | 'emoji'>('all');
+  const [purchaseToast, setPurchaseToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const filteredItems = shopItems.filter(
     (item) => filterTab === 'all' || item.category === filterTab
   );
 
-  const handlePurchase = (item: ShopItem) => {
-    if (wallet >= item.cost && !ownedItemIds.includes(item.id)) {
-      setWallet(wallet - item.cost);
-      setOwnedItemIds([...ownedItemIds, item.id]);
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setPurchaseToast({ message, type });
+    setTimeout(() => setPurchaseToast(null), 3000);
+  };
+
+  const handlePurchase = async (item: ShopItem) => {
+    if (ownedItemIds.includes(item.id)) {
+      showToast(language === 'ID' ? 'Item sudah dimiliki!' : 'Already owned!', 'error');
+      sfx.playWarning();
+      return;
+    }
+    if (coins < item.cost) {
+      showToast(language === 'ID' ? 'Koin tidak cukup!' : 'Not enough coins!', 'error');
+      sfx.playWarning();
+      return;
+    }
+
+    const result = await onPurchase(item);
+    if (result.success) {
       sfx.playCoinChime();
+      showToast(
+        language === 'ID'
+          ? `Berhasil membeli ${item.nameID}! 🎉`
+          : `Successfully purchased ${item.nameEN}! 🎉`,
+        'success'
+      );
     } else {
       sfx.playWarning();
+      showToast(result.error || 'Purchase failed.', 'error');
     }
   };
 
@@ -331,7 +382,7 @@ export const ShopView: React.FC<ShopViewProps> = ({ shopItems, language, onClose
           <Coins className="w-5 h-5 text-amber-500 animate-spin" />
           <div>
             <span className="text-[8px] font-mono text-slate-400 uppercase font-extrabold block">DOMPET / WALLET</span>
-            <span className="font-mono text-base font-black text-black">{wallet} GC</span>
+            <span className="font-mono text-base font-black text-black">{coins} GC</span>
           </div>
         </div>
       </div>
@@ -356,11 +407,22 @@ export const ShopView: React.FC<ShopViewProps> = ({ shopItems, language, onClose
         ))}
       </div>
 
+      {/* Purchase Toast Notification */}
+      {purchaseToast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl border-3 border-black font-mono text-xs font-bold brutal-shadow animate-bounce ${
+          purchaseToast.type === 'success'
+            ? 'bg-[#DFFF00] text-black'
+            : 'bg-[#FF6B35] text-white'
+        }`}>
+          {purchaseToast.type === 'success' ? '✅' : '⚠️'} {purchaseToast.message}
+        </div>
+      )}
+
       {/* Main Shop Grid layout */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 flex-1 mb-6">
         {filteredItems.map((item) => {
           const isOwned = ownedItemIds.includes(item.id);
-          const cannotAfford = wallet < item.cost;
+          const cannotAfford = coins < item.cost;
           return (
             <BrutalCard
               key={item.id}
