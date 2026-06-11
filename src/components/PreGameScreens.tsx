@@ -54,11 +54,8 @@ export const SplashView: React.FC<SplashViewProps> = ({ onNext, language, toggle
 
       {/* Display Card Frame */}
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 z-10 max-w-[500px] mx-auto w-full">
-        <div className="relative mb-8 w-28 h-28 transform rotate-6 border-[3px] border-black bg-[#DFFF00] flex items-center justify-center brutal-shadow">
-          <span className="font-mono text-5xl font-extrabold text-black">?</span>
-          <div className="absolute bottom-[2px] right-[2px] bg-black text-white text-[9px] px-1 font-mono font-bold">
-            SEC
-          </div>
+        <div className="relative mb-8 w-40 h-40 flex items-center justify-center">
+          <img src="/logo.png" alt="Secretify" className="w-full h-full object-contain drop-shadow-2xl" />
         </div>
 
         <h1 className="text-5xl font-extrabold tracking-tighter text-white uppercase text-center mb-1 select-none">
@@ -332,8 +329,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
         {/* Logo + Tagline */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-4">
-            <div className="w-12 h-12 bg-[#FFD23F] border-3 border-black rounded-xl flex items-center justify-center font-mono font-black text-2xl brutal-shadow rotate-3">
-              S
+            <div className="w-12 h-12 flex items-center justify-center">
+              <img src="/logo.png" alt="Secretify" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-4xl font-black tracking-tight text-black uppercase font-display">
               SECRETIFY
@@ -778,8 +775,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {/* Upper Navigation Bar */}
       <div className="border-b-3 border-black pb-4 mb-6 flex justify-between items-center bg-white p-4 rounded-xl brutal-shadow">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#FFD23F] border-2 border-black rounded flex items-center justify-center font-mono font-extrabold text-xl brutal-shadow-sm rotate-3">
-            S
+          <div className="w-10 h-10 flex items-center justify-center">
+            <img src="/logo.png" alt="Secretify" className="w-full h-full object-contain" />
           </div>
           <BilingualText idText="SECRETIFY" enText="DEDUCTION HUB" className="text-base uppercase" />
         </div>
