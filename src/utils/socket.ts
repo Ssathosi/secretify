@@ -46,12 +46,8 @@ class SocketManager {
    */
   connect(): Socket {
     // If a socket already exists, reuse it.
-    // Calling .connect() on a disconnected socket triggers reconnection
-    // WITHOUT removing any listeners.
+    // Socket.io handles reconnection automatically.
     if (this.socket) {
-      if (!this.socket.connected && !this.socket.connecting) {
-        this.socket.connect();
-      }
       return this.socket;
     }
 

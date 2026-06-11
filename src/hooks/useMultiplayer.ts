@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Socket } from 'socket.io-client';
 import { socketManager, ServerRoom } from '../utils/socket';
 import { Player } from '../types';
 
@@ -90,9 +91,13 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
 
   const localPlayerIdRef = useRef<string | null>(null);
   const [localPlayerId, setLocalPlayerId] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const listenersAttachedRef = useRef(false);
 
+  // Stable callback that updates room state
   const applyRoomUpdate = useCallback((updatedRoom: ServerRoom) => {
-    setRoomCode(updatedRoom.code);
+    // Only update if room code actually changed to avoid unnecessary re-renders
+    setRoomCode(prev => prev === updatedRoom.code ? prev : updatedRoom.code);
     setRoom(updatedRoom);
     const pid = localPlayerIdRef.current;
     setIsHost(updatedRoom.players.some((p) => p.id === pid && p.isHost));
@@ -104,47 +109,76 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
     setLocalPlayerId(id);
   }, []);
 
+  // Attach listeners to socket once
+  const attachListeners = useCallback((socket: Socket) => {
+    if (listenersAttachedRef.current) return;
+
+    const onConnect = () => {
+      setIsConnected(true);
+      setIsConnecting(false);
+    };
+
+    const onDisconnect = () => {
+      setIsConnected(false);
+    };
+
+    const onErrorMsg = (error: { messageID?: string; messageEN?: string }) => {
+      setConnectionError(error.messageEN || error.messageID || 'Server error');
+    };
+
+    const onRoomUpdated = (updatedRoom: ServerRoom) => {
+      applyRoomUpdate(updatedRoom);
+    };
+
+    const onGameStarted = (updatedRoom: ServerRoom) => {
+      applyRoomUpdate(updatedRoom);
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('error-msg', onErrorMsg);
+    socket.on('room-updated', onRoomUpdated);
+    socket.on('game-started', onGameStarted);
+
+    listenersAttachedRef.current = true;
+
+    // Store cleanup function in ref for disconnect
+    socketRef.current = socket;
+  }, [applyRoomUpdate]);
+
   const connect = useCallback(() => {
-    if (isConnected || isConnecting) return;
+    if (socketRef.current?.connected) {
+      setIsConnected(true);
+      setIsConnecting(false);
+      return;
+    }
+
+    if (isConnecting) return;
 
     setIsConnecting(true);
     setConnectionError(null);
 
     try {
       const socket = socketManager.connect();
-
-      const onConnect = () => {
-        setIsConnected(true);
-        setIsConnecting(false);
-      };
-
-      const onDisconnect = () => {
-        setIsConnected(false);
-      };
-
-      const onErrorMsg = (error: { messageID?: string; messageEN?: string }) => {
-        setConnectionError(error.messageEN || error.messageID || 'Server error');
-      };
-
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('error-msg', onErrorMsg);
-
-      socket.on('connect', onConnect);
-      socket.on('disconnect', onDisconnect);
-      socket.on('error-msg', onErrorMsg);
+      attachListeners(socket);
 
       if (socket.connected) {
-        onConnect();
+        setIsConnected(true);
+        setIsConnecting(false);
       }
     } catch (error) {
       setConnectionError((error as Error).message);
       setIsConnecting(false);
     }
-  }, [isConnected, isConnecting]);
+  }, [isConnecting, attachListeners]);
 
   const disconnect = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.removeAllListeners();
+      listenersAttachedRef.current = false;
+    }
     socketManager.disconnect();
+    socketRef.current = null;
     setIsConnected(false);
     setRoomCode(null);
     setRoom(null);
@@ -158,31 +192,48 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
       setIsConnected(true);
       return;
     }
-    connect();
-    await new Promise<void>((resolve, reject) => {
+
+    return new Promise<void>((resolve, reject) => {
       const socket = socketManager.connect();
-      const timeout = setTimeout(() => reject(new Error('Connection timeout')), 10000);
+      attachListeners(socket);
+
+      const timeout = setTimeout(() => {
+        reject(new Error('Connection timeout'));
+      }, 10000);
+
       if (socket.connected) {
         clearTimeout(timeout);
         setIsConnected(true);
+        setIsConnecting(false);
         resolve();
         return;
       }
-      socket.once('connect', () => {
+
+      const onConnect = () => {
         clearTimeout(timeout);
+        socket.off('connect', onConnect);
+        socket.off('connect_error', onError);
         setIsConnected(true);
+        setIsConnecting(false);
         resolve();
-      });
-      socket.once('connect_error', () => {
+      };
+
+      const onError = () => {
         clearTimeout(timeout);
+        socket.off('connect', onConnect);
+        socket.off('connect_error', onError);
+        setIsConnecting(false);
         reject(
           new Error(
             'Tidak bisa terhubung ke server. Jalankan backend: npm run server (port 5000).'
           )
         );
-      });
+      };
+
+      socket.on('connect', onConnect);
+      socket.on('connect_error', onError);
     });
-  }, [connect]);
+  }, [attachListeners]);
 
   const handleCreateRoom = useCallback(
     async (name: string, avatar: string, dbUserId?: string) => {
@@ -231,37 +282,6 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
     },
     [ensureConnected, setLocalPlayer]
   );
-
-  // Register room update listeners immediately when room is created/joined
-  useEffect(() => {
-    if (!roomCode) return;
-
-    const handleRoomUpdate = (updatedRoom: ServerRoom) => {
-      applyRoomUpdate(updatedRoom);
-    };
-
-    const handleGameStarted = (updatedRoom: ServerRoom) => {
-      applyRoomUpdate(updatedRoom);
-    };
-
-    const handleErrorMsg = (error: {
-      messageID?: string;
-      messageEN?: string;
-    }) => {
-      setConnectionError(error.messageEN || error.messageID || 'Server error');
-    };
-
-    socketManager.onRoomUpdated(handleRoomUpdate);
-    socketManager.onGameStarted(handleGameStarted);
-    const socket = socketManager.connect();
-    socket.on('error-msg', handleErrorMsg);
-
-    return () => {
-      socketManager.off('room-updated', handleRoomUpdate);
-      socketManager.off('game-started', handleGameStarted);
-      socket.off('error-msg', handleErrorMsg);
-    };
-  }, [roomCode, applyRoomUpdate]);
 
   const toggleReady = useCallback(
     (playerId: string) => {
