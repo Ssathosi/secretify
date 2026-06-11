@@ -188,26 +188,18 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
   }, []);
 
   const ensureConnected = useCallback(async () => {
+    const socket = socketManager.connect();
+    attachListeners(socket);
+
     if (socketManager.isConnected()) {
       setIsConnected(true);
       return;
     }
 
     return new Promise<void>((resolve, reject) => {
-      const socket = socketManager.connect();
-      attachListeners(socket);
-
       const timeout = setTimeout(() => {
         reject(new Error('Connection timeout'));
       }, 10000);
-
-      if (socket.connected) {
-        clearTimeout(timeout);
-        setIsConnected(true);
-        setIsConnecting(false);
-        resolve();
-        return;
-      }
 
       const onConnect = () => {
         clearTimeout(timeout);

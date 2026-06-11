@@ -138,21 +138,15 @@ class SocketManager {
 
       this.socket.emit('join-room', data);
 
-      // Listen for room update after join
-      const handleRoomUpdate = (room: ServerRoom) => {
-        this.socket?.off('room-updated', handleRoomUpdate);
+      // Listen for room update after join (use .once to avoid conflicts with attachListeners)
+      this.socket.once('room-updated', (room: ServerRoom) => {
         resolve(room);
-      };
-
-      this.socket.on('room-updated', handleRoomUpdate);
+      });
 
       // Listen for errors
-      const handleError = (error: any) => {
-        this.socket?.off('error-msg', handleError);
+      this.socket.once('error-msg', (error: any) => {
         reject(new Error(error.messageEN || 'Failed to join room'));
-      };
-
-      this.socket.once('error-msg', handleError);
+      });
 
       // Timeout after 10 seconds
       setTimeout(() => reject(new Error('Join room timeout')), 10000);
