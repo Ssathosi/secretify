@@ -272,51 +272,12 @@ export const ClerkAuthSection: React.FC<ClerkAuthSectionProps> = ({
           </div>
         )}
 
-        <div className="text-center pt-2 space-y-2">
+        <div className="text-center pt-2">
           <button
             onClick={onContinueAsGuest}
             className="text-slate-400 hover:text-white text-xs font-mono underline block mx-auto"
           >
             {language === 'ID' ? 'Lanjut sebagai Tamu' : 'Continue as Guest'}
-          </button>
-
-          <button
-            type="button"
-            id="dev-bypass-btn"
-            onClick={async () => {
-              setLoading(true);
-              setError('');
-              try {
-                const token = 'mock_jwt_token_for_e2e_tests';
-                const res = await fetch(`${SERVER_URL}/api/auth/sync`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({
-                    username: 'Test_Agent_Host',
-                    avatar: 'detective',
-                  }),
-                });
-
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Sync failed');
-
-                if (data.user) {
-                  localStorage.setItem('secretify_token', token);
-                  localStorage.setItem('secretify_user', JSON.stringify(data.user));
-                  onAuthSuccess(data.user, token);
-                }
-              } catch (err: any) {
-                setError(err?.message || 'Bypass failed');
-              } finally {
-                setLoading(false);
-              }
-            }}
-            className="mt-1 px-4 py-2 border-2 border-dashed border-red-500 bg-red-950/20 text-red-400 hover:bg-red-950/40 hover:text-red-300 font-mono text-xs font-bold rounded-lg cursor-pointer transition-all"
-          >
-            🚧 DEV BYPASS LOGIN 🚧
           </button>
         </div>
       </div>
