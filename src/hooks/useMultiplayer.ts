@@ -237,12 +237,10 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
     if (!roomCode) return;
 
     const handleRoomUpdate = (updatedRoom: ServerRoom) => {
-      console.log('[useMultiplayer] Room update received:', updatedRoom.code, 'Players:', updatedRoom.players.length);
       applyRoomUpdate(updatedRoom);
     };
 
     const handleGameStarted = (updatedRoom: ServerRoom) => {
-      console.log('[useMultiplayer] Game started event received');
       applyRoomUpdate(updatedRoom);
     };
 
@@ -253,14 +251,12 @@ export const useMultiplayer = (): UseMultiplayerReturn => {
       setConnectionError(error.messageEN || error.messageID || 'Server error');
     };
 
-    console.log('[useMultiplayer] Registering room update listeners for room:', roomCode);
     socketManager.onRoomUpdated(handleRoomUpdate);
     socketManager.onGameStarted(handleGameStarted);
     const socket = socketManager.connect();
     socket.on('error-msg', handleErrorMsg);
 
     return () => {
-      console.log('[useMultiplayer] Removing room update listeners');
       socketManager.off('room-updated', handleRoomUpdate);
       socketManager.off('game-started', handleGameStarted);
       socket.off('error-msg', handleErrorMsg);

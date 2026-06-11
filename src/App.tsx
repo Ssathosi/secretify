@@ -287,7 +287,7 @@ export default function App() {
     );
   };
 
-  const handleLobbySettingsChange = (settings: {
+  const handleLobbySettingsChange = useCallback((settings: {
     maxPlayers: number;
     rounds: number;
     specialRoles: boolean;
@@ -299,7 +299,7 @@ export default function App() {
     if (playMode === 'online' && multiplayer.isHost) {
       multiplayer.updateSettings(settings);
     }
-  };
+  }, [playMode, multiplayer.isHost, multiplayer.updateSettings]);
 
   // Launch and auto-seed roles
   const handleStartActiveGame = (
