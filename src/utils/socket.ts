@@ -40,20 +40,19 @@ class SocketManager {
   private serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
 
   /**
-   * Initialize socket connection
+   * Initialize socket connection.
+   * Reuses the existing socket if one already exists to avoid
+   * destroying listeners that were attached by useMultiplayer.
    */
   connect(): Socket {
-    // Reuse existing socket if it's already connected or in the process of connecting
-    if (this.socket?.connected) {
-      return this.socket;
-    }
-    if (this.socket?.connecting) {
-      return this.socket;
-    }
-    // If socket exists but is disconnected, reset it before reconnecting
+    // If a socket already exists, reuse it.
+    // Calling .connect() on a disconnected socket triggers reconnection
+    // WITHOUT removing any listeners.
     if (this.socket) {
-      this.socket.removeAllListeners();
-      this.socket = null;
+      if (!this.socket.connected && !this.socket.connecting) {
+        this.socket.connect();
+      }
+      return this.socket;
     }
 
     this.socket = io(this.serverUrl, {
@@ -89,11 +88,14 @@ class SocketManager {
   }
 
   /**
-   * Disconnect socket
+   * Disconnect socket and clear the reference so a fresh
+   * socket is created on the next connect() call.
    */
   disconnect(): void {
-    if (this.socket?.connected) {
+    if (this.socket) {
+      this.socket.removeAllListeners();
       this.socket.disconnect();
+      this.socket = null;
     }
   }
 
