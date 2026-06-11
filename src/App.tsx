@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Clipboard, HelpCircle, Heart, Star, Layers, CheckSquare, Sparkles, AlertCircle, Laptop, Landmark, ShieldAlert } from 'lucide-react';
 import { Player, RoleType, Clue, ChatMessage, MOCK_PLAYERS, MOCK_CLUES, MOCK_CHAT_MESSAGES, MOCK_MATCH_HISTORY, MOCK_SHOP_ITEMS, MOCK_LEADER_USERS } from './types';
 import { SplashView, OnboardingView, LoginView, GameRulesModal, HomeView, LobbyView } from './components/PreGameScreens';
