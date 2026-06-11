@@ -43,8 +43,17 @@ class SocketManager {
    * Initialize socket connection
    */
   connect(): Socket {
+    // Reuse existing socket if it's already connected or in the process of connecting
     if (this.socket?.connected) {
       return this.socket;
+    }
+    if (this.socket?.connecting) {
+      return this.socket;
+    }
+    // If socket exists but is disconnected, reset it before reconnecting
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket = null;
     }
 
     this.socket = io(this.serverUrl, {
