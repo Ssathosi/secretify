@@ -22,7 +22,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
-  'https://secretify-five.vercel.app',
+  'https://secretify-game.vercel.app',
   process.env.APP_URL || ''
 ].filter(Boolean);
 
