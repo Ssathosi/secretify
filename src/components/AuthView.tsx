@@ -198,33 +198,12 @@ const LocalAuthForm: React.FC<AuthViewProps> = ({ onAuthSuccess, onContinueAsGue
           </form>
         </div>
 
-        <div className="text-center space-y-2">
+        <div className="text-center">
           <button
             onClick={onContinueAsGuest}
             className="text-slate-400 hover:text-white text-xs font-mono underline block mx-auto"
           >
             {language === 'ID' ? 'Lanjut sebagai Tamu (tanpa simpan poin)' : 'Continue as Guest (no points saved)'}
-          </button>
-          
-          <button
-            type="button"
-            id="dev-bypass-btn"
-            onClick={() => {
-              const mockUser = {
-                id: 'local_test_user_id_12345',
-                username: 'Test_Local_Agent',
-                avatar: 'ninja',
-                points: 1200,
-                level: 4
-              };
-              const token = 'mock_local_jwt_token_for_e2e_tests';
-              localStorage.setItem('secretify_token', token);
-              localStorage.setItem('secretify_user', JSON.stringify(mockUser));
-              onAuthSuccess(mockUser, token);
-            }}
-            className="mt-1 px-4 py-2 border-2 border-dashed border-red-500 bg-red-950/20 text-red-400 hover:bg-red-950/40 hover:text-red-300 font-mono text-xs font-bold rounded-lg cursor-pointer transition-all"
-          >
-            🚧 DEV BYPASS LOGIN 🚧
           </button>
         </div>
       </div>

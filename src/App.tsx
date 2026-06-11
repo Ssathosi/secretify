@@ -67,6 +67,8 @@ export default function App() {
       setCurrentUser(saved.user);
       setPlayerName(saved.user.username);
       setPlayerAvatar(saved.user.avatar);
+      // Skip onboarding for returning users
+      setActiveScreen('home');
     }
   }, []);
 
