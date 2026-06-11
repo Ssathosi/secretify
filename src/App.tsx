@@ -32,10 +32,23 @@ import {
 
 type PlayMode = 'mock' | 'online';
 
+// Smart initial screen detection: skip splash+onboarding if returning from OAuth or already logged in
+function getInitialScreen(): string {
+  // Returning from Clerk OAuth callback — go straight to login so Clerk can process the token
+  if (window.location.hash.includes('sso-callback')) {
+    return 'login';
+  }
+  // Already logged in — skip straight to home
+  const saved = loadSavedAuth();
+  if (saved) return 'home';
+  // First-time visitor — show splash
+  return 'splash';
+}
+
 export default function App() {
   // Global configuration
   const [language, setLanguage] = useState<'ID' | 'EN'>('ID');
-  const [activeScreen, setActiveScreen] = useState<string>('splash');
+  const [activeScreen, setActiveScreen] = useState<string>(getInitialScreen);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
   // Auto-start BGM loop on first user interaction to satisfy browser security restriction
