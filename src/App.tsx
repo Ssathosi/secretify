@@ -24,6 +24,7 @@ import { BilingualText, ScallopLine } from './components/BrutalComponents';
 import { sfx } from './utils/audio';
 import { useMultiplayer } from './hooks/useMultiplayer';
 import { useEconomy } from './hooks/useEconomy';
+import { useAuth as useClerkAuth } from '@clerk/clerk-react';
 import {
   mapChatMessages,
   mapRoomPlayers,
@@ -84,6 +85,22 @@ export default function App() {
       setActiveScreen('home');
     }
   }, []);
+
+  // Keep Clerk token fresh in localStorage throughout the app
+  const { getToken: clerkGetToken, isSignedIn: clerkIsSignedIn } = useClerkAuth();
+  useEffect(() => {
+    if (!clerkIsSignedIn || !clerkGetToken) return;
+    let cancelled = false;
+    const refresh = async () => {
+      const freshToken = await clerkGetToken();
+      if (!cancelled && freshToken) {
+        localStorage.setItem('secretify_token', freshToken);
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 45_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [clerkIsSignedIn, clerkGetToken]);
 
   // Interactive Match state managers
   const [playersList, setPlayersList] = useState<Player[]>(MOCK_PLAYERS);

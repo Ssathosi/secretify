@@ -378,15 +378,20 @@ app.post('/api/user/update', async (req, res) => {
       console.log('[Profile Update] Bypass token accepted for user:', userId);
     } else if (isValidClerkKey) {
       try {
-        const { verifyToken } = await import('@clerk/backend');
         const clerkSecret = process.env.CLERK_SECRET_KEY || '';
-        const decoded = await verifyToken(token, {
-          secretKey: clerkSecret,
-        });
-        userId = decoded.sub;
-        isClerk = true;
-        console.log('[Profile Update] Clerk token verified for user:', userId);
-      } catch (clerkErr) {
+        if (!clerkSecret) {
+          console.error('[Profile Update] CLERK_SECRET_KEY is not set! Cannot verify Clerk token.');
+        } else {
+          const { verifyToken } = await import('@clerk/backend');
+          const decoded = await verifyToken(token, {
+            secretKey: clerkSecret,
+          });
+          userId = decoded.sub;
+          isClerk = true;
+          console.log('[Profile Update] Clerk token verified for user:', userId);
+        }
+      } catch (clerkErr: any) {
+        console.error('[Profile Update] Clerk token verification failed:', clerkErr?.message || clerkErr);
         // Fall back to local JWT
       }
     }
@@ -397,8 +402,10 @@ app.post('/api/user/update', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET) as { id: string | number; username: string };
         userId = decoded.id;
         console.log('[Profile Update] JWT verified for user:', userId);
-      } catch (jwtErr) {
-        return res.status(401).json({ error: 'Invalid or expired token.' });
+      } catch (jwtErr: any) {
+        console.error('[Profile Update] JWT verification failed:', jwtErr?.message || jwtErr);
+        console.error('[Profile Update] Token is neither valid Clerk nor local JWT. Returning 401.');
+        return res.status(401).json({ error: 'Invalid or expired token. Please log in again.' });
       }
     }
 
