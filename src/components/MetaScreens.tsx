@@ -17,7 +17,7 @@ interface ProfileViewProps {
   avatar: string;
   currentUser?: { id: string | number; username: string; avatar: string; points: number; level: number; coins?: number } | null;
   ownedItemIds?: string[];
-  onUpdateNameAndAvatar: (name: string, av: string) => void;
+  onUpdateNameAndAvatar: (name: string, av: string) => Promise<{ success: boolean; error?: string }>;
   onLogout?: () => void;
   onDeleteAccount?: () => Promise<void>;
   onClose: () => void;
@@ -117,6 +117,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 }) => {
   const [editingName, setEditingName] = useState(playerName);
   const [activeAvatar, setActiveAvatar] = useState(avatar);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const avatarsList = ['detective', 'cat', 'spy', 'villain', 'hacker', 'boy1', 'girl1', 'boy2', 'glasses-girl', 'monster'];
 
@@ -134,9 +137,27 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return itemId ? !ownedItemIds.includes(itemId) : false;
   };
 
-  const handleUpdate = () => {
-    if (editingName.trim()) {
-      onUpdateNameAndAvatar(editingName, activeAvatar);
+  const handleUpdate = async () => {
+    if (!editingName.trim()) {
+      setSaveError(language === 'ID' ? 'Nama tidak boleh kosong.' : 'Name cannot be empty.');
+      setSaveSuccess(false);
+      return;
+    }
+    setSaving(true);
+    setSaveError('');
+    setSaveSuccess(false);
+    try {
+      const result = await onUpdateNameAndAvatar(editingName.trim(), activeAvatar);
+      if (result.success) {
+        setSaveSuccess(true);
+        setTimeout(() => onClose(), 900);
+      } else {
+        setSaveError(result.error || (language === 'ID' ? 'Gagal menyimpan profil.' : 'Failed to save profile.'));
+      }
+    } catch (err: any) {
+      setSaveError(err?.message || (language === 'ID' ? 'Terjadi kesalahan.' : 'An error occurred.'));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -227,13 +248,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             </div>
 
-            <div className="mt-6">
+            <div className="mt-6 space-y-3">
+              {saveError && (
+                <div className="flex items-center gap-2 bg-red-50 border-2 border-red-300 rounded-lg px-3 py-2 text-xs text-red-700 font-semibold">
+                  <X className="w-3.5 h-3.5 shrink-0" /> {saveError}
+                </div>
+              )}
+              {saveSuccess && (
+                <div className="flex items-center gap-2 bg-green-50 border-2 border-green-300 rounded-lg px-3 py-2 text-xs text-green-700 font-semibold">
+                  <Check className="w-3.5 h-3.5 shrink-0" /> {language === 'ID' ? 'Profil berhasil disimpan!' : 'Profile saved successfully!'}
+                </div>
+              )}
               <BrutalButton
                 variant="teal"
-                idLabel="SIMPAN PERUBAHAN PROFILE"
-                enLabel="COMMIT PROTOCOL UPDATES"
+                idLabel={saving ? 'Menyimpan...' : 'SIMPAN PERUBAHAN PROFILE'}
+                enLabel={saving ? 'Saving...' : 'COMMIT PROTOCOL UPDATES'}
                 onClick={handleUpdate}
-                className="w-full"
+                className="w-full disabled:opacity-50"
+                disabled={saving}
                 icon={<Check className="w-4 h-4" />}
               />
             </div>

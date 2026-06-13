@@ -1004,9 +1004,6 @@ export default function App() {
                 currentUser={currentUser}
                 ownedItemIds={economy.ownedItemIds}
                 onUpdateNameAndAvatar={async (n, a) => {
-                  setPlayerName(n);
-                  setPlayerAvatar(a);
-                  
                   if (currentUser) {
                     try {
                       const token = localStorage.getItem('secretify_token');
@@ -1021,17 +1018,26 @@ export default function App() {
                       });
                       const data = await res.json();
                       if (res.ok && data.user) {
+                        // Only update state after API succeeds
+                        setPlayerName(n);
+                        setPlayerAvatar(a);
                         setCurrentUser(data.user);
                         localStorage.setItem('secretify_user', JSON.stringify(data.user));
+                        return { success: true };
                       } else {
                         console.error('Failed to update database profile:', data.error);
+                        return { success: false, error: data.error };
                       }
-                    } catch (e) {
+                    } catch (e: any) {
                       console.error('Failed to connect to profile update endpoint:', e);
+                      return { success: false, error: e?.message || 'Network error' };
                     }
+                  } else {
+                    // Guest mode - just update local state
+                    setPlayerName(n);
+                    setPlayerAvatar(a);
+                    return { success: true };
                   }
-                  
-                  setActiveScreen('home');
                 }}
                 onDeleteAccount={async () => {
                   if (currentUser) {
